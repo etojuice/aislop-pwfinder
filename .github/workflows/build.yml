@@ -3,6 +3,8 @@ name: C/C++ CI
 on:
   - push
   - pull_request
+permissions:
+  contents: write
 jobs:
   get_time_build:
     name: TAG NAME
@@ -24,9 +26,9 @@ jobs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Setup cmake
-        uses: jwlawson/actions-setup-cmake@v1
+        uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: latest
       - name: Download and install dependencies
@@ -51,7 +53,7 @@ jobs:
           
           cd build && zip -r newbspguy_ubuntu_release.zip linux_release/
       - name: Publish nightly binaries for linux
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           files: |
@@ -65,7 +67,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
@@ -84,7 +86,7 @@ jobs:
           
           Compress-Archive -Path "build\win64_release\*" -DestinationPath "build\newbspguy_win7_x64_release.zip"
       - name: Publish nightly release binaries for windows 7+
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           files: |
@@ -103,7 +105,7 @@ jobs:
           
           Compress-Archive -Path "build\win64_debug\*" -DestinationPath "build\newbspguy_win7_x64_dbg.zip"
       - name: Publish nightly debug binaries for windows 7+
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           files: |
@@ -162,43 +164,8 @@ jobs:
           
           Compress-Archive -Path "build\win64_gcc_release\*" -DestinationPath "build\newbspguy_win7_x64_gcc_release.zip"
       - name: Publish nightly release binaries for windows 7+ GCC
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           files: |
             build/newbspguy_win7_x64_gcc_release.zip
-  window_xp_build:
-    name: Windows XP
-    needs: get_time_build
-    runs-on: windows-2019
-    env:
-      solution: vs-project/bspguy.sln
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-          submodules: true
-      - name: Set up Visual Studio shell
-        uses: egor-tensin/vs-shell@v2
-        with:
-          arch: Win32
-      - name: Build XP
-        run: |
-          msbuild ${{ env.solution }} -m /p:Configuration=ReleaseXPx86 /p:Platform=Win32
-      - name: Create Windows release WinXP archive
-        run: >
-          mkdir -p build\win32_release
-          
-          cp vs-project\Release\bspguy.exe build\win32_release\
-          
-          xcopy /I /E /Y "resources\*" "build\win32_release\"
-          
-          Compress-Archive -Path "build\win32_release\*" -DestinationPath "build\newbspguy_winxp_x86_release.zip"
-      - name: Publish nightly debug binaries for windows XP
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.get_time_build.outputs.release_tag }}
-          files: |
-            build/newbspguy_winxp_x86_release.zip
