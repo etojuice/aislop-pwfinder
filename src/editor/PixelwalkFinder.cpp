@@ -106,7 +106,6 @@ namespace
 			return;
 
 		Clipper clipper;
-		std::set<long long> dedup;  // quantized (axis, pos*64) per submodel
 
 		for (auto& nvc : solidNodes)
 		{
@@ -162,13 +161,6 @@ namespace
 					continue;
 
 				float pos = vecAxis(faceVerts[0], axis);
-
-				// Dedup faces sharing the same axis-aligned plane within this submodel
-				// (multi-leaf decompositions can produce coincident exterior faces).
-				long long key = ((long long)axis << 60) | (long long)std::llround(pos * 64.0f);
-				if (dedup.count(key))
-					continue;
-				dedup.insert(key);
 
 				AxisAlignedPoly p;
 				p.modelIdx = modelIdx;
