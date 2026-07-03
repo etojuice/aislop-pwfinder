@@ -6647,7 +6647,25 @@ void Gui::drawDebugWidget()
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Green = standing, orange = duck.\nDot = position, line = approach yaw (100u).\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDot = position, spike = approach yaw (100u).\nAlt+Left-click a spot to select it and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
+			}
+			if (app->selectedPixelwalk >= 0 &&
+				app->selectedPixelwalk < (int)app->pixelwalkPositions.size())
+			{
+				PixelwalkResult& pw = app->pixelwalkPositions[app->selectedPixelwalk];
+				ImGui::Separator();
+				ImGui::Text(fmt::format("Selected pixelwalk #{} ({})",
+					app->selectedPixelwalk, pw.usehull == 0 ? "standing" : "duck").c_str());
+				ImGui::Text(fmt::format("pos: {:.3f} {:.3f} {:.3f}",
+					pw.pos.x, pw.pos.y, pw.pos.z).c_str());
+				ImGui::Text(fmt::format("yaw: {:.1f}   samples: {}", pw.yaw, pw.samples).c_str());
+				ImGui::Text(fmt::format("floor_model: {}   wall_model: {}",
+					pw.floor_model, pw.wall_model).c_str());
+				if (ImGui::Button("Copy amx_setpos"))
+				{
+					ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+						pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw).c_str());
+				}
 			}
 		}
 

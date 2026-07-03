@@ -299,6 +299,7 @@ public:
 	// sim detector (--method sim --hull both), rendered as a dot + approach line.
 	bool showPixelwalks = false;
 	std::vector<PixelwalkResult> pixelwalkPositions;
+	int selectedPixelwalk = -1;   // index into pixelwalkPositions, or -1 (Alt+click picks)
 
 	double lastTitleTime = 0.0f;
 	int g_rend_vsync = -1;
@@ -348,6 +349,9 @@ public:
 
 	void computePixelwalks();  // runs the sim detector on SelectedMap (both hulls)
 	void drawPixelwalks();
+	// Ray-picks the pixelwalk nearest the cursor (Alt+Left-click); on a hit sets
+	// selectedPixelwalk and copies "amx_setpos x y z 0 yaw" to the clipboard.
+	void pickPixelwalk();
 	// Solid pyramid spike (GL_TRIANGLES) from pos pointing along unit dir, length long.
 	void drawArrow(vec3 pos, vec3 dir, float length, float baseHalf, COLOR4 color);
 

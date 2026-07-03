@@ -46,6 +46,8 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 		r.usehull = f.usehull;
 		r.hang_frames = (int)f.advanced;
 		r.samples = f.cluster_size;
+		r.floor_model = f.floor_model;
+		r.wall_model = f.wall_model;
 		out.push_back(r);
 	}
 	return true;

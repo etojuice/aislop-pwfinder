@@ -15,6 +15,8 @@ struct PixelwalkResult
 	int   usehull;     // 0 = standing, 1 = duck
 	int   hang_frames; // frames the hull hung on the pixel (robustness metric)
 	int   samples;     // sub-pixel hits merged into this find
+	int   floor_model; // submodel index of the floor brush (0 = worldspawn)
+	int   wall_model;  // submodel index of the wall brush (-1 if unknown)
 };
 
 namespace PixelwalkFinder

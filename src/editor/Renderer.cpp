@@ -2101,7 +2101,12 @@ void Renderer::cameraPickingControls()
 		if (shouldPickObject)
 		{
 			facePickTime = -1.0;
-			pickObject();
+			// Alt+Left-click over the pixelwalk overlay picks a pixelwalk spot
+			// (and copies its amx_setpos) instead of doing normal object picking.
+			if (anyAltPressed && showPixelwalks && !pixelwalkPositions.empty())
+				pickPixelwalk();
+			else
+				pickObject();
 		}
 	}
 
@@ -5252,11 +5257,56 @@ void Renderer::computePixelwalks()
 	}
 
 	pixelwalkPositions.clear();
+	selectedPixelwalk = -1;
 	if (!PixelwalkFinder::findPixelwalks(map->bsp_path, pixelwalkPositions))
 		print_log(PRINT_RED, "pixelwalk: failed to load '{}' as BSP v30\n", map->bsp_path);
 	else
 		print_log(PRINT_GREEN, "pixelwalk: found {} positions\n", pixelwalkPositions.size());
 	showPixelwalks = true;
+}
+
+void Renderer::pickPixelwalk()
+{
+	if (!SelectedMap)
+	{
+		selectedPixelwalk = -1;
+		return;
+	}
+
+	vec3 pickStart, pickDir;
+	getPickRay(pickStart, pickDir);   // origin + unit dir, raw map coords
+	// Markers are drawn translated by the map's render offset; put the ray in the
+	// same raw-map space as PixelwalkResult::pos (no-op for a map loaded at origin).
+	pickStart -= SelectedMap->getBspRender()->mapOffset;
+
+	const float R = 12.0f;   // click radius (matches the DOT size in drawPixelwalks)
+	int   bestIdx = -1;
+	float bestT = 1e30f;
+
+	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
+	{
+		vec3  oc = pickStart - pixelwalkPositions[i].pos;
+		float b = dotProduct(oc, pickDir);
+		float c = dotProduct(oc, oc) - R * R;
+		float disc = b * b - c;                 // a == 1 (pickDir is unit)
+		if (disc < 0.0f)
+			continue;                            // ray misses the sphere
+		float sq = sqrtf(disc);
+		float t = -b - sq;                       // near root
+		if (t < 0.0f) t = -b + sq;               // camera inside sphere -> far root
+		if (t < 0.0f) continue;                  // sphere entirely behind camera
+		if (t < bestT) { bestT = t; bestIdx = (int)i; }
+	}
+
+	selectedPixelwalk = bestIdx;
+	if (bestIdx >= 0)
+	{
+		PixelwalkResult& pw = pixelwalkPositions[bestIdx];
+		std::string cmd = fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+			pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw);
+		ImGui::SetClipboardText(cmd.c_str());
+		print_log(PRINT_GREEN, "pixelwalk: copied \"{}\"\n", cmd);
+	}
 }
 
 void Renderer::drawPixelwalks()
