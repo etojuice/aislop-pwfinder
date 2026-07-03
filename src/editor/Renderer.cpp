@@ -5325,7 +5325,11 @@ void Renderer::drawPixelwalks()
 	{
 		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
 		drawBox(r.pos, DOT, c);
-		drawArrow(r.pos, r.approach, 100.0f, 8.0f, c);   // approach dir, 100u spike
+		// Point the spike along the yaw we copy to amx_setpos (0=+X, 90=+Y) — i.e.
+		// the orientation actually applied in-game — so the render matches the test.
+		float yr = r.yaw * (HL_PI / 180.0f);
+		vec3 dir = vec3(cosf(yr), sinf(yr), 0.0f);
+		drawArrow(r.pos, dir, 100.0f, 8.0f, c);   // 100u spike along yaw
 	}
 	glEnable(GL_CULL_FACE);
 }

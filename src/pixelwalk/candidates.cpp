@@ -11,6 +11,7 @@ namespace {
 using Poly = std::vector<std::array<float,3>>;
 
 constexpr float FLOOR_NZ   = 0.7f;    // walkable-up threshold (matches engine)
+constexpr float SLOPE_FLAT_NZ = 0.99f;// floor normal.z below this == a tilted ramp
 constexpr float WALL_NZ    = 0.1f;    // |nz| below this == vertical wall
 constexpr float MIN_SEAM   = 2.0f;    // ignore seams shorter than this
 constexpr float Z_MATCH    = 2.0f;    // floor-height vs wall-z-range slack
@@ -111,7 +112,8 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
     };
 
     // Collect floor and wall faces from solid models only.
-    struct FloorF { int fi, model; float z; Box2 box; Poly poly; };
+    struct FloorF { int fi, model; float z; Box2 box; Poly poly;
+                    float fn[3]; float fd; bool slope; };
     struct WallF  { int fi, model; float wz0, wz1; Box2 box; float nx, ny, dd_at0; float outn[3]; };
     std::vector<FloorF> floors;
     std::vector<WallF>  walls;
@@ -131,7 +133,15 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
         if (n[2] >= FLOOR_NZ) {
             float zsum = 0; for (auto& v : p) zsum += v[2];
             FloorF ff; ff.fi = fi; ff.model = m; ff.z = zsum / (float)p.size();
-            ff.box = PolyBox2(p); ff.poly = std::move(p);
+            ff.box = PolyBox2(p);
+            // World-space effective floor plane (side-flipped so fn.z>0), shifted by
+            // the brush-entity origin: fn.x = (fd - dot(fn,x))... used for per-xy z.
+            const mplane_t& fpl = map.planes[map.faces[fi].planenum];
+            float fs = map.faces[fi].side ? -1.0f : 1.0f;
+            ff.fn[0] = n[0]; ff.fn[1] = n[1]; ff.fn[2] = n[2];
+            ff.fd = fpl.dist * fs + (n[0]*org[0] + n[1]*org[1] + n[2]*org[2]);
+            ff.slope = (n[2] < SLOPE_FLAT_NZ);   // tilted ramp (not near-flat)
+            ff.poly = std::move(p);
             floors.push_back(std::move(ff));
         } else if (std::fabs(n[2]) < WALL_NZ) {
             float z0 = 1e30f, z1 = -1e30f;
@@ -177,6 +187,8 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
             s.floor_model = ff.model;
             s.wall_model = -1;
             s.method = 'A';
+            s.fn = { ff.fn[0], ff.fn[1], ff.fn[2] };
+            s.fd = ff.fd; s.slope = ff.slope;
             seams.push_back(s);
         }
     }
@@ -236,6 +248,8 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
             s.floor_model = ff.model;
             s.wall_model = w.model;
             s.method = 'B';
+            s.fn = { ff.fn[0], ff.fn[1], ff.fn[2] };
+            s.fd = ff.fd; s.slope = ff.slope;
             seams.push_back(s);
         }
     }

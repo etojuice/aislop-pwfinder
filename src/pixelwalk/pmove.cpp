@@ -76,6 +76,7 @@ int PM_FlyMove(PmContext* pm) {
 
         if (trace.allsolid) {
             VectorCopy(vec3_origin, pm->velocity);
+            pm->flymove_blocked |= 4;
             return 4;
         }
 
@@ -147,6 +148,7 @@ int PM_FlyMove(PmContext* pm) {
     if (allFraction == 0.0f)
         VectorCopy(vec3_origin, pm->velocity);
 
+    pm->flymove_blocked |= blocked;
     return blocked;
 }
 
@@ -304,6 +306,7 @@ void PM_WalkMove(PmContext* pm) {
 // One full MOVETYPE_WALK frame, non-water (pm_shared.cpp:3258 sequence). No jump/
 // duck/ladder/water — the finder drives a plain +forward walk.
 void PM_PlayerMoveFrame(PmContext* pm) {
+    pm->flymove_blocked = 0;   // reset; PM_FlyMove ORs its blocked flags in
     AngleVectors(pm->angles, pm->forward, pm->right, pm->up);
     PM_AddCorrectGravity(pm);
     if (pm->onground != -1) { pm->velocity[2] = 0; PM_Friction(pm); }

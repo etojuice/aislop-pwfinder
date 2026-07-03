@@ -14,6 +14,7 @@ struct Find {
     bool by_probe = false;
     bool by_walk  = false;
     bool by_fall  = false;
+    bool by_slope = false;            // caught on a tilted (ramp) floor pixel
     std::array<float,3> floor_normal{}; float floor_dist = 0;
     std::array<float,3> approach{};    // unit dir to walk (into the wall)
     int  floor_model = -1;
@@ -45,5 +46,5 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
 // Debug: run the full PM_PlayerMove sim at a given origin, holding +forward along
 // `yaw` (level pitch), and print per-frame origin, velocity, and onground.
 void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehull,
-             int frames, float dist_epsilon);
+             int frames, float dist_epsilon, float init_vz = 0.0f);
 } // namespace pw

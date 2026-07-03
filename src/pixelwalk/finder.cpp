@@ -20,8 +20,25 @@ constexpr float FALL_MIN = 4.0f;      // without the pixel, "falls far" if it dr
 // Per-frame gravity dip (sv_gravity 800, 100 fps): 800*0.5*0.01. While hanging on
 // a horizontal pixel plane the floor clips the fall so end-of-frame vz stays here.
 constexpr float HANG_VZ = -4.0f;
+constexpr int   CATCH_MIN = 3;        // min frames the hull stays caught on a slope pixel
+// Slope-pixel z-scan: the catch sits on the hull-EXPANDED ramp plane, ~feet+[0..1]
+// above the ramp surface (GoldSrc's non-axial expansion isn't surface+36 exactly),
+// in a razor-thin (~0.1u) band. Sweep the hull-center height across this window
+// (relative to the ramp SURFACE z at the sample xy) at a sub-band step to hit it.
+constexpr float SLOPE_ZOFF_LO = 35.5f;   // low  hull-center offset above ramp surface
+constexpr float SLOPE_ZOFF_HI = 37.5f;   // high hull-center offset above ramp surface (feet
+                                         //   offset is ~36 flat .. ~36.8 at the 0.7 limit)
+constexpr float SLOPE_ZSTEP   = 0.05f;   // z step (< the ~0.1u catch band)
 
 float feetOffset(int usehull) { return -PLAYER_MINS[usehull][2]; }  // 36 or 18
+
+// Height of the floor face's plane at (x,y): z = (fd - fn.x*x - fn.y*y)/fn.z.
+// Flat floors -> constant; slopes -> varies along the seam.
+float floorZAt(const Seam& s, float x, float y) {
+    float nz = s.fn[2];
+    if (std::fabs(nz) < 1e-4f) return s.z;
+    return (s.fd - s.fn[0]*x - s.fn[1]*y) / nz;
+}
 
 // Multi-model point solidity at world point p (order-insensitive; same for both
 // clip-tree orderings). Used only for cheap sanity checks.
@@ -85,7 +102,8 @@ inline bool HitWall(const pmtrace_t& t) {
 // and slides sideways while gravity keeps dipping them into the floor plane). A
 // pixelwalk slides far while barely dropping; a clean map just falls. Reports how
 // far the hull moved horizontally and how far it dropped over `nframes`. ---
-struct SimOut { float moved; float dropped; vec3_t endpos; int onground_f2; int hang_frames; };
+struct SimOut { float moved; float dropped; vec3_t endpos; int onground_f2; int hang_frames;
+               int catch_frames; vec3_t catch_pos; };
 
 SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t start,
                 const vec3_t moveDir, float eps, int nframes) {
@@ -118,19 +136,29 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     VectorClear(pm.velocity);
     VectorClear(pm.basevelocity);
 
-    int og2 = -1, hang = 0;
+    int og2 = -1, hang = 0, caught = 0;
+    vec3_t catch_pos; VectorClear(catch_pos);
     for (int f = 0; f < nframes; ++f) {
         PM_PlayerMoveFrame(&pm);
         if (f == 1) og2 = pm.onground;   // onground after the 2nd movement frame
+        bool free_space = PointContentsMulti(phys, usehull, pm.origin) != CONTENTS_SOLID;
         // A "hang" frame: airborne, in FREE SPACE, but the floor plane clipped the
         // fall so end-of-frame vertical velocity is still just the half-gravity dip
         // (~-4). Falling accumulates it (-8, -16, ...). The free-space check rejects
         // a STUCK/embedded hull: when PM_FlyMove goes allsolid it zeroes velocity,
         // which also reads as vz==-4 after the gravity fixup — but that's an illegal
         // stuck position, not a pixelwalk.
-        if (pm.onground == -1 && std::fabs(pm.velocity[2] - HANG_VZ) < 0.5f &&
-            PointContentsMulti(phys, usehull, pm.origin) != CONTENTS_SOLID)
+        if (pm.onground == -1 && std::fabs(pm.velocity[2] - HANG_VZ) < 0.5f && free_space)
             hang++;
+        // A "catch" frame (slope-agnostic generalization of hang): PM_FlyMove clipped
+        // a FLOOR/slope plane this frame (bit0, normal.z>0.7 — includes ramps) while
+        // the hull ends airborne (categorize's straight-down 2u trace misses the
+        // pixel) and not embedded. On a flat pixel this coincides with hang; on a
+        // slope the hull slides while staying caught, so vz != -4 and only this fires.
+        if ((pm.flymove_blocked & 0x01) && pm.onground == -1 && free_space) {
+            caught++;
+            VectorCopy(pm.origin, catch_pos);
+        }
     }
 
     SimOut o;
@@ -140,6 +168,8 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     o.dropped = start[2] - pm.origin[2];
     o.onground_f2 = og2;
     o.hang_frames = hang;
+    o.catch_frames = caught;
+    VectorCopy(catch_pos, o.catch_pos);
     return o;
 }
 
@@ -178,6 +208,51 @@ bool FindOutwardAndContact(PmContext& pm, const std::vector<physent_t>& phys, in
     return false;
 }
 
+// Detect a pixelwalk on a TILTED (ramp) floor at one along-seam sample. Unlike a
+// flat pixel (fixed height), the catch sits on the hull-EXPANDED ramp plane in a
+// razor-thin (~0.1u) band whose exact height GoldSrc's non-axial clip expansion
+// doesn't put at surface+36 — so we sweep the hull-center height across a small
+// window above the ramp SURFACE (computed from the floor plane) and sub-pixel
+// across the wall clip plane, teleport-testing the generalized CATCH criterion.
+bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
+                 const Seam& seam, float feet, const vec3_t base, const vec3_t outn,
+                 const FinderConfig& cfg, Find& f, int& wallModel, float& ovz) {
+    float surf = floorZAt(seam, base[0], base[1]);      // ramp surface z at the sample xy
+    vec3_t sbase = { base[0], base[1], surf + feet };
+    vec3_t soutward, scontact; int swall = -1;
+    if (!FindOutwardAndContact(pm, phys, usehull, sbase, outn, surf + feet + 0.5f,
+                               soutward, scontact, swall))
+        return false;
+    float surfc = floorZAt(seam, scontact[0], scontact[1]);   // surface at the clip-plane xy
+    vec3_t md = { -soutward[0], -soutward[1], 0.0f };          // +forward INTO the wall
+    const int NF = 15;
+    for (float zoff = SLOPE_ZOFF_LO; zoff <= SLOPE_ZOFF_HI + 1e-6f; zoff += SLOPE_ZSTEP) {
+        float czs = surfc + zoff;
+        for (float o = -0.05f; o <= 0.15f + 1e-6f; o += cfg.grid) {
+            vec3_t startC = { scontact[0] + soutward[0]*o, scontact[1] + soutward[1]*o, czs };
+            if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
+            // Cheap pre-filter: the ramp catch fires within the first frames, so a
+            // short 3-frame sim rejects the vast majority of (z, sub-pixel) samples
+            // that just fall — only a caught sample pays for the full sim.
+            SimOut e1 = SimDrive(phys, usehull, startC, md, PW_EPS, 3);
+            if (e1.catch_frames < 1) continue;
+            SimOut ea = SimDrive(phys, usehull, startC, md, PW_EPS, NF);
+            if (ea.catch_frames < CATCH_MIN) continue;         // must catch the ramp with the pixel
+            SimOut eb = SimDrive(phys, usehull, startC, md, 0.0f, NF);
+            if (eb.catch_frames >= CATCH_MIN) continue;        // real ramp (caught both ways) -> reject
+            f.pos = { startC[0], startC[1], startC[2] };
+            f.floor_normal = { seam.fn[0], seam.fn[1], seam.fn[2] };
+            f.floor_dist = seam.fd;
+            f.by_slope = true;
+            f.advanced = (float)ea.catch_frames;
+            wallModel = (swall >= 0) ? swall : wallModel;
+            ovz = startC[2] - feet;                            // feet height for the over-void gate
+            return true;
+        }
+    }
+    return false;
+}
+
 void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floors,
                  const FinderConfig& cfg,
                  std::vector<Find>& out, std::unordered_set<long long>& seen) {
@@ -194,9 +269,16 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
     if (len < 1e-3f) return;
     dir[0] /= len; dir[1] /= len;
 
-    // Physents near this seam (world + overlapping solid brush ents).
-    float qmins[3] = { std::min(a[0],b[0]) - 64, std::min(a[1],b[1]) - 64, seam.z - 96 };
-    float qmaxs[3] = { std::max(a[0],b[0]) + 64, std::max(a[1],b[1]) + 64, seam.z + 128 };
+    // Physents near this seam (world + overlapping solid brush ents). For a slope
+    // the catch height varies along the seam, so widen the z query to the ramp
+    // surface range (+ the hull-center offset window) over the endpoints.
+    float zlo = seam.z, zhi = seam.z;
+    if (seam.slope) {
+        float za = floorZAt(seam, a[0], a[1]), zb = floorZAt(seam, b[0], b[1]);
+        zlo = std::min(za, zb); zhi = std::max(za, zb) + SLOPE_ZOFF_HI;
+    }
+    float qmins[3] = { std::min(a[0],b[0]) - 64, std::min(a[1],b[1]) - 64, zlo - 96 };
+    float qmaxs[3] = { std::max(a[0],b[0]) + 64, std::max(a[1],b[1]) + 64, zhi + 128 };
     std::vector<physent_t> phys;
     SelectPhysents(wm, qmins, qmaxs, phys);
 
@@ -225,10 +307,12 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
             // at the wall surface) and the correct outward direction.
             vec3_t outward, contact;
             int wallModel = -1;
-            if (!FindOutwardAndContact(pm, phys, usehull, base, outn, seam.z + feet + 0.5f,
-                                       outward, contact, wallModel))
-                continue;
+            float ovz = seam.z;   // height fed to the over-void gate (slope: feet height)
+            bool haveWall = FindOutwardAndContact(pm, phys, usehull, base, outn,
+                                       seam.z + feet + 0.5f, outward, contact, wallModel);
+            if (!seam.slope && !haveWall) continue;
 
+          if (!seam.slope) {   // ===== FLAT floor: probe + fixed-height sim =====
             // ---- PROBE: epsilon-differential of one real pixelwalk step. A find
             // is where the move resolves to a FLOOR with the engine epsilon but is
             // BLOCKED BY A WALL without it (a genuine wall->floor flip). Requiring a
@@ -299,13 +383,16 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                     }
                 }
             }
+          } else if (cfg.do_walk || cfg.do_fall) {   // ===== SLOPE (sim methods only) =====
+            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz);
+          }
 
             if (!got) continue;
 
             // Over-void gate: a genuine pixelwalk stand is over the void (no real
             // floor face under the hull center). Benign concave corners have real
             // floor beneath and are rejected here.
-            if (floors.overFloor(f.pos[0], f.pos[1], seam.z, 3.0f)) continue;
+            if (floors.overFloor(f.pos[0], f.pos[1], ovz, 3.0f)) continue;
 
             long long key = PosKey(f.pos, usehull);
             if (!seen.insert(key).second) continue;
@@ -322,7 +409,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
 } // namespace
 
 void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehull,
-             int frames, float dist_epsilon) {
+             int frames, float dist_epsilon, float init_vz) {
     float q0[3] = { origin[0]-256, origin[1]-256, origin[2]-256 };
     float q1[3] = { origin[0]+256, origin[1]+256, origin[2]+256 };
     std::vector<physent_t> phys;
@@ -340,22 +427,24 @@ void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehul
     pm.angles[0] = 0.0f; pm.angles[1] = yaw; pm.angles[2] = 0.0f;
     VectorCopy(origin, pm.origin);
     VectorClear(pm.velocity); VectorClear(pm.basevelocity);
+    pm.velocity[2] = init_vz;                 // seed a jump (init_vz = sqrt(2*800*45)=268.33)
 
-    std::printf("[trace] origin (%.3f, %.3f, %.3f)  yaw %.1f  stance %s  eps %.5f  +forward  (%d physents)\n",
+    std::printf("[trace] origin (%.3f, %.3f, %.3f)  yaw %.1f  stance %s  eps %.5f  +forward  vz0=%.2f  (%d physents)\n",
                 origin[0], origin[1], origin[2], yaw, usehull == 0 ? "standing" : "duck",
-                dist_epsilon, (int)phys.size());
+                dist_epsilon, init_vz, (int)phys.size());
     PmContext probe = pm;                     // report starting onground without snapping
     PM_CategorizePosition(&probe);
     auto pc = [&](const vec3_t o) { return PointContentsMulti(phys, usehull, o) == CONTENTS_SOLID ? 'S' : 'E'; };
-    std::printf("  frame  origin                              velocity                     onground  pc(E/S)\n");
-    std::printf("  init   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c\n",
+    std::printf("  frame  origin                              velocity                     onground  pc(E/S)  caughtFloor\n");
+    std::printf("  init   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c        %c\n",
                 pm.origin[0], pm.origin[1], pm.origin[2],
-                pm.velocity[0], pm.velocity[1], pm.velocity[2], probe.onground, pc(pm.origin));
+                pm.velocity[0], pm.velocity[1], pm.velocity[2], probe.onground, pc(pm.origin), '-');
     for (int f = 0; f < frames; ++f) {
         PM_PlayerMoveFrame(&pm);
-        std::printf("  %4d   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c\n",
+        std::printf("  %4d   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c        %c\n",
                     f, pm.origin[0], pm.origin[1], pm.origin[2],
-                    pm.velocity[0], pm.velocity[1], pm.velocity[2], pm.onground, pc(pm.origin));
+                    pm.velocity[0], pm.velocity[1], pm.velocity[2], pm.onground, pc(pm.origin),
+                    (pm.flymove_blocked & 0x01) ? 'Y' : '.');
     }
 }
 
@@ -399,6 +488,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 g.by_probe |= f.by_probe;
                 g.by_walk  |= f.by_walk;
                 g.by_fall  |= f.by_fall;
+                g.by_slope |= f.by_slope;
                 if (f.by_probe && (g.floor_normal[0]==0&&g.floor_normal[1]==0&&g.floor_normal[2]==0)) {
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
                 }
@@ -428,6 +518,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 Find& g = clustered[it->second];
                 g.cluster_size++;
                 g.by_probe |= f.by_probe; g.by_walk |= f.by_walk; g.by_fall |= f.by_fall;
+                g.by_slope |= f.by_slope;
                 if (f.advanced > g.advanced) {   // keep the strongest representative
                     g.pos = f.pos; g.advanced = f.advanced;
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
@@ -443,7 +534,8 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
     // most-sampled/strongest within each group.
     std::sort(finds.begin(), finds.end(), [](const Find& a, const Find& b) {
         if (a.usehull != b.usehull) return a.usehull < b.usehull;   // standing(0) before duck(1)
-        bool as = a.by_walk || a.by_fall, bs = b.by_walk || b.by_fall;   // has the sim method?
+        bool as = a.by_walk || a.by_fall || a.by_slope;   // has the sim method?
+        bool bs = b.by_walk || b.by_fall || b.by_slope;
         if (as != bs) return as > bs;                                // sim-detected first
         if (a.cluster_size != b.cluster_size) return a.cluster_size > b.cluster_size;
         return a.advanced > b.advanced;

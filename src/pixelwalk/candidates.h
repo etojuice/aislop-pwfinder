@@ -18,6 +18,12 @@ struct Seam {
     int  floor_model;
     int  wall_model;   // -1 when unknown (Method A / detector fills actual)
     char method;       // 'A' convex floor edge, 'B' floor-plane x wall-plane
+    // Floor face's world-space plane (normal + dist), so the finder can compute the
+    // real floor height at any xy: z = (fd - fn.x*x - fn.y*y)/fn.z. For flat floors
+    // this is a constant (== z); for SLOPES it varies along the seam.
+    std::array<float,3> fn{0,0,1};
+    float fd = 0.0f;
+    bool  slope = false;   // floor normal.z in [FLOOR_NZ, ~0.99): a tilted (ramp) floor
 };
 
 // Enumerates seams from solid-model floor/wall faces.

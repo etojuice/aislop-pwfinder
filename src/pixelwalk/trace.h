@@ -37,6 +37,8 @@ struct PmContext {
     float  gravity = 1.0f;               // entity gravity multiplier
     float  friction = 1.0f;              // player friction multiplier
     int    onground = -1;                // -1 airborne, else physent index underfoot
+    int    flymove_blocked = 0;          // OR of PM_FlyMove blocked flags this frame
+                                         //   (bit0=floor/slope normal.z>0.7, bit1=wall)
     int    movetype = 3;                 // MOVETYPE_WALK
     int    waterlevel = 0;
     float  waterjumptime = 0.0f;
