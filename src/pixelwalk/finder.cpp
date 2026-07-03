@@ -25,10 +25,16 @@ constexpr int   CATCH_MIN = 3;        // min frames the hull stays caught on a s
 // above the ramp surface (GoldSrc's non-axial expansion isn't surface+36 exactly),
 // in a razor-thin (~0.1u) band. Sweep the hull-center height across this window
 // (relative to the ramp SURFACE z at the sample xy) at a sub-band step to hit it.
-constexpr float SLOPE_ZOFF_LO = 35.5f;   // low  hull-center offset above ramp surface
-constexpr float SLOPE_ZOFF_HI = 37.5f;   // high hull-center offset above ramp surface (feet
-                                         //   offset is ~36 flat .. ~36.8 at the 0.7 limit)
-constexpr float SLOPE_ZSTEP   = 0.05f;   // z step (< the ~0.1u catch band)
+// Slope catch height above the ramp SURFACE = feet + a stance-dependent "extra"
+// (the non-axial GoldSrc clip expansion, which is NOT feet exactly): measured
+// +0.79 standing, +6.07 duck at the 45° limit, 0 for near-flat ramps. So scan
+// hull-center z = surface + feet + extra, extra over this range (feet-relative so it
+// works for both stances). Step < the ~0.035u catch band.
+constexpr float SLOPE_EXTRA_LO = -1.0f;  // low  extra above (surface + feet)
+constexpr float SLOPE_EXTRA_HI =  8.0f;  // high extra above (surface + feet) (covers duck +6.07)
+constexpr float SLOPE_ZSTEP    = 0.05f;  // z step: < the ~0.035u catch band. Coarser (0.1) skips
+                                         //   whole seam columns (the 3-frame fall-in reach is small),
+                                         //   dropping real finds — keep it fine.
 
 float feetOffset(int usehull) { return -PLAYER_MINS[usehull][2]; }  // 36 or 18
 
@@ -216,7 +222,8 @@ bool FindOutwardAndContact(PmContext& pm, const std::vector<physent_t>& phys, in
 // across the wall clip plane, teleport-testing the generalized CATCH criterion.
 bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
                  const Seam& seam, float feet, const vec3_t base, const vec3_t outn,
-                 const FinderConfig& cfg, Find& f, int& wallModel, float& ovz) {
+                 const FinderConfig& cfg, Find& f, int& wallModel, float& ovz,
+                 vec3_t outward) {
     float surf = floorZAt(seam, base[0], base[1]);      // ramp surface z at the sample xy
     vec3_t sbase = { base[0], base[1], surf + feet };
     vec3_t soutward, scontact; int swall = -1;
@@ -226,8 +233,11 @@ bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
     float surfc = floorZAt(seam, scontact[0], scontact[1]);   // surface at the clip-plane xy
     vec3_t md = { -soutward[0], -soutward[1], 0.0f };          // +forward INTO the wall
     const int NF = 15;
-    for (float zoff = SLOPE_ZOFF_LO; zoff <= SLOPE_ZOFF_HI + 1e-6f; zoff += SLOPE_ZSTEP) {
-        float czs = surfc + zoff;
+    // Standing's catch sits just above feet (~+0.8 max); duck's is much higher
+    // (~+6). Cap the tall-hull scan tighter so it stays cheap without missing it.
+    float extraHi = (feet >= 30.0f) ? 2.5f : SLOPE_EXTRA_HI;
+    for (float extra = SLOPE_EXTRA_LO; extra <= extraHi + 1e-6f; extra += SLOPE_ZSTEP) {
+        float czs = surfc + feet + extra;   // feet-relative: works for standing AND duck
         for (float o = -0.05f; o <= 0.15f + 1e-6f; o += cfg.grid) {
             vec3_t startC = { scontact[0] + soutward[0]*o, scontact[1] + soutward[1]*o, czs };
             if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
@@ -247,6 +257,8 @@ bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
             f.advanced = (float)ea.catch_frames;
             wallModel = (swall >= 0) ? swall : wallModel;
             ovz = startC[2] - feet;                            // feet height for the over-void gate
+            VectorCopy(soutward, outward);                     // hand back the ramp-height outward
+                                                              // dir so f.approach/yaw are correct
             return true;
         }
     }
@@ -274,8 +286,9 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
     // surface range (+ the hull-center offset window) over the endpoints.
     float zlo = seam.z, zhi = seam.z;
     if (seam.slope) {
+        // catch height = surface + feet + extra; cover the tallest hull (feet 36).
         float za = floorZAt(seam, a[0], a[1]), zb = floorZAt(seam, b[0], b[1]);
-        zlo = std::min(za, zb); zhi = std::max(za, zb) + SLOPE_ZOFF_HI;
+        zlo = std::min(za, zb); zhi = std::max(za, zb) + 36.0f + SLOPE_EXTRA_HI;
     }
     float qmins[3] = { std::min(a[0],b[0]) - 64, std::min(a[1],b[1]) - 64, zlo - 96 };
     float qmaxs[3] = { std::max(a[0],b[0]) + 64, std::max(a[1],b[1]) + 64, zhi + 128 };
@@ -305,7 +318,8 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
 
             // Locate the wall clip plane (the pixelwalk "red square" is here, not
             // at the wall surface) and the correct outward direction.
-            vec3_t outward, contact;
+            vec3_t outward = {0.0f, 0.0f, 0.0f}, contact;   // outward set by FindOutwardAndContact
+                                                            // (flat) or SlopeDetect (slope)
             int wallModel = -1;
             float ovz = seam.z;   // height fed to the over-void gate (slope: feet height)
             bool haveWall = FindOutwardAndContact(pm, phys, usehull, base, outn,
@@ -384,7 +398,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                 }
             }
           } else if (cfg.do_walk || cfg.do_fall) {   // ===== SLOPE (sim methods only) =====
-            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz);
+            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz, outward);
           }
 
             if (!got) continue;
