@@ -1021,14 +1021,14 @@ void Renderer::renderLoop()
 					debugNodeMax = currentPlane - 1;
 				}
 
-				if (showPixelwalkSeams && !pixelwalkSeams.empty())
+				if (showPixelwalks && !pixelwalkPositions.empty())
 				{
 					matmodel.loadIdentity();
 					vec3 offset = SelectedMap->getBspRender()->mapOffset.flip();
 					matmodel.translate(offset.x, offset.y, offset.z);
 					mat_upload();
 					glDisable(GL_DEPTH_TEST);
-					drawPixelwalkSeams();
+					drawPixelwalks();
 					glEnable(GL_DEPTH_TEST);
 				}
 				if (g_render_flags & RENDER_ORIGIN || g_render_flags & RENDER_MAP_BOUNDARY || hasCullbox)
@@ -5236,13 +5236,8 @@ bool Renderer::hasCopiedEnt()
 	return false;
 }
 
-void Renderer::computePixelwalkSeams(int hull)
+void Renderer::computePixelwalks()
 {
-	if (hull != 1 && hull != 3)
-	{
-		print_log(PRINT_RED, "pixelwalk: unsupported hull {} (only 1 and 3 are player hulls)\n", hull);
-		return;
-	}
 	Bsp* map = SelectedMap;
 	if (!map)
 	{
@@ -5250,26 +5245,37 @@ void Renderer::computePixelwalkSeams(int hull)
 		return;
 	}
 
-	pixelwalkSeams.clear();
-	PixelwalkFinder::findSeams(map, hull, pixelwalkSeams);
-	pixelwalkComputedHull = hull;
-	showPixelwalkSeams = true;
+	pixelwalkPositions.clear();
+	if (!PixelwalkFinder::findPixelwalks(map->bsp_path, pixelwalkPositions))
+		print_log(PRINT_RED, "pixelwalk: failed to load '{}' as BSP v30\n", map->bsp_path);
+	else
+		print_log(PRINT_GREEN, "pixelwalk: found {} positions\n", pixelwalkPositions.size());
+	showPixelwalks = true;
 }
 
-void Renderer::drawPixelwalkSeams()
+void Renderer::drawPixelwalks()
 {
-	if (pixelwalkSeams.empty())
+	if (pixelwalkPositions.empty())
 		return;
-	// Color by hull so standing/crouch seams are visually distinguishable.
-	// Hull 1 (standing) = cyan, hull 3 (crouch) = magenta, anything else = yellow.
-	const COLOR4 colHull1 = {0, 255, 255, 255};
-	const COLOR4 colHull3 = {255, 0, 255, 255};
-	const COLOR4 colOther = {255, 255, 0, 255};
-	for (auto& s : pixelwalkSeams)
+	// Big dot at the resting position + a 100-unit line along the approach yaw.
+	// Standing (usehull 0) = cyan, duck (usehull 1) = magenta.
+	const COLOR4 colStand = {0, 255, 255, 255};
+	const COLOR4 colDuck  = {255, 0, 255, 255};
+	const float DOT = 12.0f;   // "big dot" cube width
+
+	// Face culling is GL_FRONT; disable so the dot cubes render solid.
+	glDisable(GL_CULL_FACE);
+	GLfloat savedLineWidth;
+	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
+	glLineWidth(2.0f);
+	for (auto& r : pixelwalkPositions)
 	{
-		COLOR4 c = (s.hull == 1) ? colHull1 : (s.hull == 3) ? colHull3 : colOther;
-		vec3 a = s.p1;
-		vec3 b = s.p2;
-		drawLine(a, b, c);
+		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
+		drawBox(r.pos, DOT, c);
+		vec3 a = r.pos;
+		vec3 b = r.pos + r.approach * 100.0f;   // approach is horizontal (z=0)
+		drawLine(a, b, c);                        // drawLine flips both to render space
 	}
+	glLineWidth(savedLineWidth);
+	glEnable(GL_CULL_FACE);
 }

@@ -1,0 +1,49 @@
+// finder.h - pixelwalk detection over candidate seams.
+#pragma once
+#include <array>
+#include <vector>
+#include "bsp.h"
+#include "candidates.h"
+#include "world.h"
+
+namespace pw {
+
+struct Find {
+    std::array<float,3> pos{};        // resting hull-center world position
+    int  usehull = 0;                 // 0 standing, 1 duck
+    bool by_probe = false;
+    bool by_walk  = false;
+    bool by_fall  = false;
+    std::array<float,3> floor_normal{}; float floor_dist = 0;
+    std::array<float,3> approach{};    // unit dir to walk (into the wall)
+    int  floor_model = -1;
+    int  wall_model  = -1;
+    int  fall_N = 0;                   // fall-drive frame count (fall finds only)
+    float advanced = 0;               // units the epsilon let the hull gain
+    int  cluster_size = 1;            // raw sample-hits merged into this spot
+};
+
+struct FinderConfig {
+    bool  standing = true;
+    bool  duck     = true;
+    bool  do_probe = true;
+    bool  do_walk  = true;
+    bool  do_fall  = true;
+    float grid       = 1.0f / 64.0f;  // cross-seam sub-pixel step
+    float band       = 0.5f;          // cross-seam half-window
+    float along_step = 1.0f;          // step along the seam
+    int   max_finds  = 0;             // 0 = unlimited
+    int   min_samples = 6;            // drop finds with fewer than this many sub-pixel hits
+    int   threads    = 0;             // 0 = auto
+    bool  verbose    = false;
+    bool  skip_categorize = false;    // --skip-categorize-pos: don't skip on-ground starts
+};
+
+std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIndex& floors,
+                            const std::vector<Seam>& seams, const FinderConfig& cfg);
+
+// Debug: run the full PM_PlayerMove sim at a given origin, holding +forward along
+// `yaw` (level pitch), and print per-frame origin, velocity, and onground.
+void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehull,
+             int frames, float dist_epsilon);
+} // namespace pw

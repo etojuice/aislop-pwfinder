@@ -6630,25 +6630,24 @@ void Gui::drawDebugWidget()
 			ImGui::Text(fmt::format(fmt::runtime(get_localized_string(LANG_0369)), app->pickMode).c_str());
 
 			ImGui::Separator();
-			ImGui::Checkbox("Show pixelwalk seams", &app->showPixelwalkSeams);
-			if (ImGui::Button("Find seams (hull 1)"))
-				app->computePixelwalkSeams(1);
-			ImGui::SameLine();
-			if (ImGui::Button("Find seams (hull 3)"))
-				app->computePixelwalkSeams(3);
-			if (app->pixelwalkComputedHull > 0)
+			ImGui::Checkbox("Show pixelwalks", &app->showPixelwalks);
+			if (ImGui::Button("Find pixelwalks (sim, both hulls)"))
+				app->computePixelwalks();
+			if (!app->pixelwalkPositions.empty())
 			{
-				ImGui::TextDisabled("%zu segments (hull %d)",
-					app->pixelwalkSeams.size(),
-					app->pixelwalkComputedHull);
+				size_t stand = 0, duck = 0;
+				for (auto& r : app->pixelwalkPositions)
+					(r.usehull == 0 ? stand : duck)++;
+				ImGui::TextDisabled("%zu pixelwalks (standing %zu, duck %zu)",
+					app->pixelwalkPositions.size(), stand, duck);
 			}
 			else
 			{
-				ImGui::TextDisabled("Click a button to compute seams");
+				ImGui::TextDisabled("Click to scan the open map (BSP v30)");
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Cyan = hull 1 (standing), magenta = hull 3 (crouch).\nSeams are derived from clipnode collision polygons.");
+				ImGui::SetTooltip("Cyan = standing, magenta = duck.\nDot = position, line = approach yaw (100u).\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
 			}
 		}
 
