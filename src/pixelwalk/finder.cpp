@@ -15,9 +15,8 @@ namespace pw {
 namespace {
 
 constexpr float PW_EPS = 0.03125f;    // engine DIST_EPSILON
-constexpr int   HANG_MIN = 3;         // min frames the hull must hang on the pixel
-constexpr float FALL_DIFF = 5.0f;     // min extra fall (units) without the pixel vs with it
-                                      // — confirms the hang is pixel-dependent, not a wedge
+constexpr int   HANG_MIN = 3;         // min frames the hull must hang FREELY on the pixel
+constexpr float FALL_MIN = 4.0f;      // without the pixel, "falls far" if it drops more than this
 // Per-frame gravity dip (sv_gravity 800, 100 fps): 800*0.5*0.01. While hanging on
 // a horizontal pixel plane the floor clips the fall so end-of-frame vz stays here.
 constexpr float HANG_VZ = -4.0f;
@@ -279,14 +278,18 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                     // it settled on a real floor (legitimate stand), not a pixelwalk.
                     if (!cfg.skip_categorize && ea.onground_f2 != -1) continue;
                     // Pixelwalk requires BOTH:
-                    //  (1) the hull HANGS with the pixel — vz pinned at ~-4 (floor
-                    //      clips the fall) for several frames; AND
-                    //  (2) that hang is PIXEL-DEPENDENT — without the epsilon the hull
-                    //      actually falls (>= FALL_DIFF more). This rejects geometric
-                    //      wedges/stuck corners that stay put with or without the pixel.
+                    //  (1) the hull HANGS FREELY with the pixel — vz pinned at ~-4
+                    //      (floor clips the fall), airborne, origin not embedded; AND
+                    //  (2) that free hang is PIXEL-DEPENDENT — WITHOUT the epsilon the
+                    //      hull cannot stand there: it either FALLS FAR or EMBEDS in
+                    //      solid. A geometric wedge / stuck corner just shuffles on
+                    //      real floor without the pixel (neither falls far nor embeds),
+                    //      so it is rejected.
                     if (ea.hang_frames >= HANG_MIN) {
                         SimOut eb = SimDrive(phys, usehull, startC, md, 0.0f, NF);
-                        if (eb.dropped - ea.dropped > FALL_DIFF) {
+                        bool eb_falls = eb.dropped > FALL_MIN;
+                        bool eb_embeds = PointContentsMulti(phys, usehull, eb.endpos) == CONTENTS_SOLID;
+                        if (eb_falls || eb_embeds) {
                             if (!f.by_probe) f.pos = { startC[0], startC[1], seam.z + feet };
                             f.by_walk = true;
                             if (ea.hang_frames > f.advanced) f.advanced = (float)ea.hang_frames;
