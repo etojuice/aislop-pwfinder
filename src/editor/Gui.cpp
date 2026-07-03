@@ -6647,7 +6647,7 @@ void Gui::drawDebugWidget()
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Cyan = standing, magenta = duck.\nDot = position, line = approach yaw (100u).\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDot = position, line = approach yaw (100u).\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
 			}
 		}
 

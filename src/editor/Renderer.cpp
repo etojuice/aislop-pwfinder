@@ -417,7 +417,13 @@ void Renderer::renderLoop()
 
 	{
 		line_verts = new cVert[2];
-		lineBuf = new VertexBuffer(colorShader, line_verts, 2, GL_LINES, true);
+		// takeOwnership MUST be false: VertexBuffer::upload() delete[]s owned data
+		// after the first upload, but drawLine rewrites line_verts + reupload()s
+		// every call. With ownership=true only the first drawLine of the session
+		// rendered (all later ones read freed memory / stale GPU readback), which
+		// broke the origin axes, nav-mesh debug, and pixelwalk lines. line_verts
+		// lives for the app's lifetime, so no manual free is needed.
+		lineBuf = new VertexBuffer(colorShader, line_verts, 2, GL_LINES, false);
 	}
 
 	{
@@ -5257,25 +5263,54 @@ void Renderer::drawPixelwalks()
 {
 	if (pixelwalkPositions.empty())
 		return;
-	// Big dot at the resting position + a 100-unit line along the approach yaw.
-	// Standing (usehull 0) = cyan, duck (usehull 1) = magenta.
-	const COLOR4 colStand = {0, 255, 255, 255};
-	const COLOR4 colDuck  = {255, 0, 255, 255};
+	// Big dot at the resting position + a 100-unit spike along the approach yaw.
+	// Standing (usehull 0) = green, duck (usehull 1) = orange.
+	const COLOR4 colStand = {0, 255, 0, 255};
+	const COLOR4 colDuck  = {255, 128, 0, 255};
 	const float DOT = 12.0f;   // "big dot" cube width
 
-	// Face culling is GL_FRONT; disable so the dot cubes render solid.
+	// Face culling is GL_FRONT; disable so the solid dot + spike render fully.
 	glDisable(GL_CULL_FACE);
-	GLfloat savedLineWidth;
-	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
-	glLineWidth(2.0f);
 	for (auto& r : pixelwalkPositions)
 	{
 		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
 		drawBox(r.pos, DOT, c);
-		vec3 a = r.pos;
-		vec3 b = r.pos + r.approach * 100.0f;   // approach is horizontal (z=0)
-		drawLine(a, b, c);                        // drawLine flips both to render space
+		drawArrow(r.pos, r.approach, 100.0f, 8.0f, c);   // approach dir, 100u spike
 	}
-	glLineWidth(savedLineWidth);
 	glEnable(GL_CULL_FACE);
+}
+
+// Draws a solid square-based pyramid ("spike") of GL_TRIANGLES from a base at
+// `pos` to a tip at `pos + dir*length`, so it visibly points along `dir`. Built
+// like drawBox: geometry in map coords, flipped per-vertex to GL space, drawn
+// with a throwaway VertexBuffer. `dir` must be a unit horizontal vector (z=0).
+// Call from a context that already set matmodel to the map offset (as the
+// showPixelwalks block does) and disabled GL_CULL_FACE.
+void Renderer::drawArrow(vec3 pos, vec3 dir, float length, float baseHalf, COLOR4 color)
+{
+	vec3 fwd  = dir;
+	vec3 side = vec3(fwd.y, -fwd.x, 0.0f);   // horizontal perpendicular (unit)
+	vec3 up   = vec3(0.0f, 0.0f, 1.0f);      // vertical
+
+	vec3 tip = pos + fwd * length;
+	vec3 b0 = pos + side * baseHalf + up * baseHalf;
+	vec3 b1 = pos + side * baseHalf - up * baseHalf;
+	vec3 b2 = pos - side * baseHalf - up * baseHalf;
+	vec3 b3 = pos - side * baseHalf + up * baseHalf;
+
+	// map -> GL render space (x, z, -y); matmodel already carries the map offset.
+	auto V = [&](vec3 p) { return cVert(p.x, p.z, -p.y, color); };
+
+	cVert spike[] = {
+		V(b0), V(b1), V(tip),   // side faces
+		V(b1), V(b2), V(tip),
+		V(b2), V(b3), V(tip),
+		V(b3), V(b0), V(tip),
+		V(b0), V(b1), V(b2),    // base
+		V(b0), V(b2), V(b3),
+	};
+	const int numVerts = (int)(sizeof(spike) / sizeof(spike[0]));
+
+	VertexBuffer buffer(g_app->colorShader, spike, numVerts, GL_TRIANGLES, false);
+	buffer.drawFull();
 }

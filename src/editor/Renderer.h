@@ -348,6 +348,8 @@ public:
 
 	void computePixelwalks();  // runs the sim detector on SelectedMap (both hulls)
 	void drawPixelwalks();
+	// Solid pyramid spike (GL_TRIANGLES) from pos pointing along unit dir, length long.
+	void drawArrow(vec3 pos, vec3 dir, float length, float baseHalf, COLOR4 color);
 
 	vec3 getAxisDragPoint(vec3 origin);
 
