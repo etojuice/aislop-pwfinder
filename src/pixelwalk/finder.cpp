@@ -341,8 +341,8 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                     pmtrace_t t0 = ProbeSweep(pm, c, outward, 0.0f);
                     if (!HitWall(t0)) continue;         // must be WALL->floor, not EMPTY->floor
                     f.pos = { c[0], c[1], seam.z + feet };
-                    f.floor_normal = { te.plane.normal[0], te.plane.normal[1], te.plane.normal[2] };
-                    f.floor_dist = te.plane.dist;
+                    // floor plane is set consistently from the seam in the finalize
+                    // block below (was te.plane here = origin-z, inconsistent).
                     f.by_probe = true;
                     got = true;
                     break;
@@ -413,6 +413,13 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
 
             f.usehull = usehull;
             f.approach = { -outward[0], -outward[1], 0.0f };
+            // Floor plane from the SEAM (surface plane) for EVERY find, so it's
+            // consistent across probe/sim/slope: `fd` is the floor surface dist
+            // (constant along a ramp; = floor z for a flat wall). The zone key uses
+            // this, so spots at different heights on one wall no longer merge, while
+            // a single ramp (one plane) stays one zone.
+            f.floor_normal = { seam.fn[0], seam.fn[1], seam.fn[2] };
+            f.floor_dist = seam.fd;
             f.floor_model = seam.floor_model;
             f.wall_model = (wallModel >= 0) ? wallModel : seam.wall_model;
             out.push_back(f);
@@ -554,7 +561,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
             return n[0] != 0.0f || n[1] != 0.0f || n[2] != 0.0f;
         };
         auto lineKey = [](const Find& f) -> long long {
-            long long parts[7] = {
+            long long parts[9] = {
                 (long long)f.usehull,
                 (long long)std::lround(f.approach[0] * 100.0f),
                 (long long)std::lround(f.approach[1] * 100.0f),
@@ -562,6 +569,8 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 (long long)std::lround(f.floor_normal[1] * 100.0f),
                 (long long)std::lround(f.floor_normal[2] * 100.0f),
                 (long long)std::lround(f.floor_dist),
+                (long long)f.floor_model,   // different brush entities never merge
+                (long long)f.wall_model,
             };
             long long h = 1469598103934665603LL;   // FNV-1a-ish mix
             for (long long v : parts) h = (h ^ (v & 0xFFFFF)) * 1099511628211LL;
