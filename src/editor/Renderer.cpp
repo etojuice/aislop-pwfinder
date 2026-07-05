@@ -5325,9 +5325,12 @@ void Renderer::drawPixelwalks()
 	GLfloat savedLineWidth;
 	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
 	glLineWidth(3.0f);
-	for (auto& r : pixelwalkPositions)
+	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
 	{
+		PixelwalkResult& r = pixelwalkPositions[i];
 		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
+		if ((int)i == selectedPixelwalk)
+			c = COLOR4(255, c.g / 4, c.b / 4, 255);   // red hue on the selected zone
 		drawBox(r.pos, DOT, c);
 		// Zone span: line from the "from" endpoint to the "to" endpoint (same
 		// stance color); single-spot finds have length 0 -> just the dot.
