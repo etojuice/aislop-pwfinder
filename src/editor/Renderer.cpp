@@ -5325,26 +5325,39 @@ void Renderer::drawPixelwalks()
 	GLfloat savedLineWidth;
 	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
 	glLineWidth(3.0f);
-	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
+
+	// One zone = dot(s) + span line + a spike along the yaw copied to amx_setpos
+	// (0=+X, 90=+Y) — the orientation actually applied in-game.
+	auto drawZone = [&](PixelwalkResult& r, COLOR4 c)
 	{
-		PixelwalkResult& r = pixelwalkPositions[i];
-		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
-		if ((int)i == selectedPixelwalk)
-			c = COLOR4(255, c.g / 4, c.b / 4, 255);   // red hue on the selected zone
 		drawBox(r.pos, DOT, c);
-		// Zone span: line from the "from" endpoint to the "to" endpoint (same
-		// stance color); single-spot finds have length 0 -> just the dot.
-		if (r.length > 0.5f)
+		if (r.length > 0.5f)   // span: line from the "from" endpoint to the "to" endpoint
 		{
 			drawLine(r.pos, r.to, c);
 			drawBox(r.to, DOT, c);
 		}
-		// Point the spike along the yaw we copy to amx_setpos (0=+X, 90=+Y) — i.e.
-		// the orientation actually applied in-game — so the render matches the test.
 		float yr = r.yaw * (HL_PI / 180.0f);
 		vec3 dir = vec3(cosf(yr), sinf(yr), 0.0f);
 		drawArrow(r.pos, dir, 100.0f, 8.0f, c);   // 100u spike along yaw
+	};
+
+	// Depth test is disabled for this overlay, so overlap is decided purely by
+	// draw order (last write wins). Draw the non-selected zones first, then the
+	// selected one LAST so it paints over the other pixelwalks (rendered on top).
+	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
+	{
+		if ((int)i == selectedPixelwalk)
+			continue;
+		PixelwalkResult& r = pixelwalkPositions[i];
+		drawZone(r, (r.usehull == 0) ? colStand : colDuck);
 	}
+	if (selectedPixelwalk >= 0 && selectedPixelwalk < (int)pixelwalkPositions.size())
+	{
+		PixelwalkResult& r = pixelwalkPositions[selectedPixelwalk];
+		COLOR4 base = (r.usehull == 0) ? colStand : colDuck;
+		drawZone(r, COLOR4(255, base.g / 4, base.b / 4, 255));   // red hue, drawn last
+	}
+
 	glLineWidth(savedLineWidth);
 	glEnable(GL_CULL_FACE);
 }
