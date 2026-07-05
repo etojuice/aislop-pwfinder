@@ -33,6 +33,7 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 	cfg.do_walk = true;
 	cfg.do_fall = true;
 	cfg.zones = true;                // --zones: group collinear finds into from->to spans
+	cfg.min_samples = 2;             // --min-samples=2: keep finds/zones with >=2 sub-pixel hits
 
 	std::vector<pw::Find> finds = pw::RunFinder(map, wm, floors, seams, cfg);
 
