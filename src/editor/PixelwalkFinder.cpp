@@ -32,6 +32,7 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 	cfg.do_probe = false;            // --method sim = walk + fall, no probe
 	cfg.do_walk = true;
 	cfg.do_fall = true;
+	cfg.zones = true;                // --zones: group collinear finds into from->to spans
 
 	std::vector<pw::Find> finds = pw::RunFinder(map, wm, floors, seams, cfg);
 
@@ -39,6 +40,8 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 	{
 		PixelwalkResult r;
 		r.pos = vec3(f.pos[0], f.pos[1], f.pos[2]);
+		r.to = vec3(f.to[0], f.to[1], f.to[2]);
+		r.length = f.length;
 		r.approach = vec3(f.approach[0], f.approach[1], f.approach[2]);
 		r.yaw = std::atan2(f.approach[1], f.approach[0]) * 180.0f / 3.14159265358979f;
 		if (r.yaw < 0.0f)

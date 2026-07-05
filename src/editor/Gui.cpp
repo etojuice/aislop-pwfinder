@@ -6638,7 +6638,7 @@ void Gui::drawDebugWidget()
 				size_t stand = 0, duck = 0;
 				for (auto& r : app->pixelwalkPositions)
 					(r.usehull == 0 ? stand : duck)++;
-				ImGui::TextDisabled("%zu pixelwalks (standing %zu, duck %zu)",
+				ImGui::TextDisabled("%zu pixelwalk zones (standing %zu, duck %zu)",
 					app->pixelwalkPositions.size(), stand, duck);
 			}
 			else
@@ -6647,24 +6647,39 @@ void Gui::drawDebugWidget()
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Green = standing, orange = duck.\nDot = position, spike = approach yaw (100u).\nAlt+Left-click a spot to select it and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both on the map file.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both --zones on the map file.");
 			}
 			if (app->selectedPixelwalk >= 0 &&
 				app->selectedPixelwalk < (int)app->pixelwalkPositions.size())
 			{
 				PixelwalkResult& pw = app->pixelwalkPositions[app->selectedPixelwalk];
 				ImGui::Separator();
-				ImGui::Text(fmt::format("Selected pixelwalk #{} ({})",
+				ImGui::Text(fmt::format("Selected zone #{} ({})",
 					app->selectedPixelwalk, pw.usehull == 0 ? "standing" : "duck").c_str());
-				ImGui::Text(fmt::format("pos: {:.3f} {:.3f} {:.3f}",
+				ImGui::Text(fmt::format("from: {:.3f} {:.3f} {:.3f}",
 					pw.pos.x, pw.pos.y, pw.pos.z).c_str());
+				if (pw.length > 0.5f)
+				{
+					ImGui::Text(fmt::format("to:   {:.3f} {:.3f} {:.3f}",
+						pw.to.x, pw.to.y, pw.to.z).c_str());
+					ImGui::Text(fmt::format("length: {:.1f}", pw.length).c_str());
+				}
 				ImGui::Text(fmt::format("yaw: {:.1f}   samples: {}", pw.yaw, pw.samples).c_str());
 				ImGui::Text(fmt::format("floor_model: {}   wall_model: {}",
 					pw.floor_model, pw.wall_model).c_str());
-				if (ImGui::Button("Copy amx_setpos"))
+				if (ImGui::Button("Copy amx_setpos (from)"))
 				{
 					ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
 						pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw).c_str());
+				}
+				if (pw.length > 0.5f)
+				{
+					ImGui::SameLine();
+					if (ImGui::Button("Copy amx_setpos (to)"))
+					{
+						ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+							pw.to.x, pw.to.y, pw.to.z, pw.yaw).c_str());
+					}
 				}
 			}
 		}

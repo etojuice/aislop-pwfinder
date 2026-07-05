@@ -9,12 +9,14 @@
 // are in raw GoldSrc map coordinates (Z up); the renderer flips to GL space.
 struct PixelwalkResult
 {
-	vec3  pos;         // resting hull-center origin (= amx_setpos x y z)
+	vec3  pos;         // "from" endpoint / resting hull-center origin (= amx_setpos x y z)
+	vec3  to;          // "to" endpoint of the walkable span (== pos for a single spot)
+	float length;      // span length in units (0 for a single spot)
 	vec3  approach;    // unit horizontal dir into the wall (z=0); the +forward to hold
 	float yaw;         // degrees, CS convention (0=+X, 90=+Y), normalized [0,360)
 	int   usehull;     // 0 = standing, 1 = duck
 	int   hang_frames; // frames the hull hung on the pixel (robustness metric)
-	int   samples;     // sub-pixel hits merged into this find
+	int   samples;     // sub-pixel hits merged into this find/zone
 	int   floor_model; // submodel index of the floor brush (0 = worldspawn)
 	int   wall_model;  // submodel index of the wall brush (-1 if unknown)
 };

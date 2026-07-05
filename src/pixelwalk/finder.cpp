@@ -514,7 +514,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
 
     // Cluster nearby hits (dense sub-pixel samples on the same seam) into distinct
     // spots so the report is a usable list of locations.
-    {
+    if (!cfg.zones) {
         const float CELL = 64.0f;
         std::unordered_map<long long, size_t> cidx;
         std::vector<Find> clustered;
@@ -542,6 +542,78 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
             }
         }
         finds.swap(clustered);
+    } else {
+        // --zones: group contiguous COLLINEAR finds into from->to spans. Finds on
+        // one wall already share approach (wall-normal dir), the floor plane
+        // (normal+dist; constant even on a ramp, where only z varies), and a
+        // constant perpendicular coord — only the along-wall coord varies (~1 per
+        // 2u). So bucket by (stance, approach, floor plane), sort by along-coord,
+        // and split a new span on a big along-gap or a perpendicular jump.
+        const float PERP_TOL = 4.0f;
+        auto nonzeroN = [](const std::array<float,3>& n) {
+            return n[0] != 0.0f || n[1] != 0.0f || n[2] != 0.0f;
+        };
+        auto lineKey = [](const Find& f) -> long long {
+            long long parts[7] = {
+                (long long)f.usehull,
+                (long long)std::lround(f.approach[0] * 100.0f),
+                (long long)std::lround(f.approach[1] * 100.0f),
+                (long long)std::lround(f.floor_normal[0] * 100.0f),
+                (long long)std::lround(f.floor_normal[1] * 100.0f),
+                (long long)std::lround(f.floor_normal[2] * 100.0f),
+                (long long)std::lround(f.floor_dist),
+            };
+            long long h = 1469598103934665603LL;   // FNV-1a-ish mix
+            for (long long v : parts) h = (h ^ (v & 0xFFFFF)) * 1099511628211LL;
+            return h;
+        };
+        std::unordered_map<long long, std::vector<Find>> groups;
+        for (Find& f : finds) groups[lineKey(f)].push_back(f);
+
+        std::vector<Find> zones;
+        for (auto& kv : groups) {
+            std::vector<Find>& g = kv.second;
+            if (g.empty()) continue;
+            // along-dir = perpendicular to approach in xy (unit, since approach unit)
+            float ax = g[0].approach[0], ay = g[0].approach[1];
+            float adx = -ay, ady = ax;
+            auto along = [&](const Find& f){ return f.pos[0]*adx + f.pos[1]*ady; };
+            auto perp  = [&](const Find& f){ return f.pos[0]*ax  + f.pos[1]*ay;  };
+            std::sort(g.begin(), g.end(),
+                      [&](const Find& p, const Find& q){ return along(p) < along(q); });
+
+            size_t i = 0;
+            while (i < g.size()) {
+                size_t j = i;
+                while (j + 1 < g.size()) {
+                    if (along(g[j+1]) - along(g[j]) > cfg.zone_gap) break;
+                    if (std::fabs(perp(g[j+1]) - perp(g[j])) > PERP_TOL) break;
+                    ++j;
+                }
+                Find z = g[i];                         // seed: min-along endpoint = from
+                z.to = g[j].pos;                        // max-along endpoint = to
+                z.length = along(g[j]) - along(g[i]);
+                z.cluster_size = (int)(j - i + 1);
+                z.advanced = 0.0f;
+                bool haveN = nonzeroN(z.floor_normal);
+                for (size_t k = i; k <= j; ++k) {
+                    z.by_probe |= g[k].by_probe; z.by_walk |= g[k].by_walk;
+                    z.by_fall  |= g[k].by_fall;  z.by_slope |= g[k].by_slope;
+                    if (g[k].advanced > z.advanced) {   // strongest sample -> representative
+                        z.advanced = g[k].advanced;
+                        z.approach = g[k].approach; z.floor_model = g[k].floor_model;
+                        z.wall_model = g[k].wall_model; z.fall_N = g[k].fall_N;
+                    }
+                    if (!haveN && nonzeroN(g[k].floor_normal)) {   // plane from a probe/slope hit
+                        z.floor_normal = g[k].floor_normal; z.floor_dist = g[k].floor_dist;
+                        haveN = true;
+                    }
+                }
+                zones.push_back(z);
+                i = j + 1;
+            }
+        }
+        finds.swap(zones);
     }
 
     // Order: stance (standing then duck), then method (sim first), then

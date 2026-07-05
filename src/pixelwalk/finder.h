@@ -22,6 +22,11 @@ struct Find {
     int  fall_N = 0;                   // fall-drive frame count (fall finds only)
     float advanced = 0;               // units the epsilon let the hull gain
     int  cluster_size = 1;            // raw sample-hits merged into this spot
+    // --zones: this find is a contiguous walkable SPAN. `pos` is one endpoint
+    // (from), `to` the other (end); `length` = span length in units. For point
+    // output (default) `to == pos` and `length == 0`.
+    std::array<float,3> to{};
+    float length = 0.0f;
 };
 
 struct FinderConfig {
@@ -38,6 +43,9 @@ struct FinderConfig {
     int   threads    = 0;             // 0 = auto
     bool  verbose    = false;
     bool  skip_categorize = false;    // --skip-categorize-pos: don't skip on-ground starts
+    bool  zones      = false;         // --zones: group contiguous collinear finds into
+                                      //   from->to spans instead of 64u point clusters
+    float zone_gap   = 8.0f;          // --zone-gap: max along-wall gap (units) within one zone
 };
 
 std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIndex& floors,

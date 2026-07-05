@@ -5313,24 +5313,36 @@ void Renderer::drawPixelwalks()
 {
 	if (pixelwalkPositions.empty())
 		return;
-	// Big dot at the resting position + a 100-unit spike along the approach yaw.
-	// Standing (usehull 0) = green, duck (usehull 1) = orange.
+	// Standing (usehull 0) = green, duck (usehull 1) = orange. Per walkable zone:
+	// dots at the endpoints, a line spanning start->end, and a spike along the
+	// approach yaw (the orientation copied to amx_setpos).
 	const COLOR4 colStand = {0, 255, 0, 255};
 	const COLOR4 colDuck  = {255, 128, 0, 255};
 	const float DOT = 12.0f;   // "big dot" cube width
 
-	// Face culling is GL_FRONT; disable so the solid dot + spike render fully.
+	// Face culling is GL_FRONT; disable so the solid dots + spikes render fully.
 	glDisable(GL_CULL_FACE);
+	GLfloat savedLineWidth;
+	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
+	glLineWidth(3.0f);
 	for (auto& r : pixelwalkPositions)
 	{
 		COLOR4 c = (r.usehull == 0) ? colStand : colDuck;
 		drawBox(r.pos, DOT, c);
+		// Zone span: line from the "from" endpoint to the "to" endpoint (same
+		// stance color); single-spot finds have length 0 -> just the dot.
+		if (r.length > 0.5f)
+		{
+			drawLine(r.pos, r.to, c);
+			drawBox(r.to, DOT, c);
+		}
 		// Point the spike along the yaw we copy to amx_setpos (0=+X, 90=+Y) — i.e.
 		// the orientation actually applied in-game — so the render matches the test.
 		float yr = r.yaw * (HL_PI / 180.0f);
 		vec3 dir = vec3(cosf(yr), sinf(yr), 0.0f);
 		drawArrow(r.pos, dir, 100.0f, 8.0f, c);   // 100u spike along yaw
 	}
+	glLineWidth(savedLineWidth);
 	glEnable(GL_CULL_FACE);
 }
 
