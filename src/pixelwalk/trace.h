@@ -39,6 +39,11 @@ struct PmContext {
     int    onground = -1;                // -1 airborne, else physent index underfoot
     int    flymove_blocked = 0;          // OR of PM_FlyMove blocked flags this frame
                                          //   (bit0=floor/slope normal.z>0.7, bit1=wall)
+    int    flymove_floor_ent = -1;       // physent index of the FLOOR plane clipped this
+                                         //   frame (-1 none). phys[ent].info = model index.
+                                         //   Sourced as a find's floor_model at the catch.
+    int    flymove_wall_ent = -1;        // physent index of the non-floor (wall/steep)
+                                         //   plane clipped this frame (-1 none) -> wall_model.
     int    movetype = 3;                 // MOVETYPE_WALK
     int    waterlevel = 0;
     float  waterjumptime = 0.0f;

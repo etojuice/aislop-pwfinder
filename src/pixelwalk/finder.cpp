@@ -109,7 +109,9 @@ inline bool HitWall(const pmtrace_t& t) {
 // pixelwalk slides far while barely dropping; a clean map just falls. Reports how
 // far the hull moved horizontally and how far it dropped over `nframes`. ---
 struct SimOut { float moved; float dropped; vec3_t endpos; int onground_f2; int hang_frames;
-               int catch_frames; vec3_t catch_pos; };
+               int catch_frames; vec3_t catch_pos;
+               int catch_floor_ent; int catch_wall_ent; };   // physents that won on the
+                                                             // catch frame (-1 none) -> models
 
 SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t start,
                 const vec3_t moveDir, float eps, int nframes) {
@@ -143,6 +145,7 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     VectorClear(pm.basevelocity);
 
     int og2 = -1, hang = 0, caught = 0;
+    int cfe = -1, cwe = -1;                       // floor/wall physents on the catch frame
     vec3_t catch_pos; VectorClear(catch_pos);
     for (int f = 0; f < nframes; ++f) {
         PM_PlayerMoveFrame(&pm);
@@ -164,6 +167,11 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
         if ((pm.flymove_blocked & 0x01) && pm.onground == -1 && free_space) {
             caught++;
             VectorCopy(pm.origin, catch_pos);
+            // Record the models that actually won this catch frame. The floor bit
+            // guarantees a floor ent; the wall is the non-floor plane pressed (keep
+            // the last valid one across catch frames).
+            cfe = pm.flymove_floor_ent;
+            if (pm.flymove_wall_ent >= 0) cwe = pm.flymove_wall_ent;
         }
     }
 
@@ -176,6 +184,8 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     o.hang_frames = hang;
     o.catch_frames = caught;
     VectorCopy(catch_pos, o.catch_pos);
+    o.catch_floor_ent = cfe;
+    o.catch_wall_ent = cwe;
     return o;
 }
 
@@ -223,7 +233,7 @@ bool FindOutwardAndContact(PmContext& pm, const std::vector<physent_t>& phys, in
 bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
                  const Seam& seam, float feet, const vec3_t base, const vec3_t outn,
                  const FinderConfig& cfg, Find& f, int& wallModel, float& ovz,
-                 vec3_t outward) {
+                 vec3_t outward, int& catchFloorModel, int& catchWallModel) {
     float surf = floorZAt(seam, base[0], base[1]);      // ramp surface z at the sample xy
     vec3_t sbase = { base[0], base[1], surf + feet };
     vec3_t soutward, scontact; int swall = -1;
@@ -255,7 +265,14 @@ bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
             f.floor_dist = seam.fd;
             f.by_slope = true;
             f.advanced = (float)ea.catch_frames;
-            wallModel = (swall >= 0) ? swall : wallModel;
+            wallModel = (swall >= 0) ? swall : wallModel;      // FindOutwardAndContact fallback
+            // Source BOTH models from the actual winning catch, not the fixed-height
+            // wall probe (which lands at surf+feet+0.5 and mis-reports coincident
+            // walls, e.g. worldspawn's end-cap winning a tie it shouldn't). The sim
+            // observes the real collision at the catch height, whatever it is.
+            auto mo = [&](int e){ return (e >= 0 && e < (int)phys.size()) ? phys[e].info : -1; };
+            if (mo(ea.catch_floor_ent) >= 0) catchFloorModel = mo(ea.catch_floor_ent);
+            if (mo(ea.catch_wall_ent)  >= 0) catchWallModel  = mo(ea.catch_wall_ent);
             ovz = startC[2] - feet;                            // feet height for the over-void gate
             VectorCopy(soutward, outward);                     // hand back the ramp-height outward
                                                               // dir so f.approach/yaw are correct
@@ -298,6 +315,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
     PmContext pm;
     pm.numphysent = (int)phys.size();
     pm.physents = phys.data();
+    auto modelOf = [&phys](int e){ return (e >= 0 && e < (int)phys.size()) ? phys[e].info : -1; };
 
     int stances[2]; int ns = 0;
     if (cfg.standing) stances[ns++] = 0;
@@ -321,6 +339,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
             vec3_t outward = {0.0f, 0.0f, 0.0f}, contact;   // outward set by FindOutwardAndContact
                                                             // (flat) or SlopeDetect (slope)
             int wallModel = -1;
+            int catchFloorModel = -1, catchWallModel = -1;   // models from the winning catch
             float ovz = seam.z;   // height fed to the over-void gate (slope: feet height)
             bool haveWall = FindOutwardAndContact(pm, phys, usehull, base, outn,
                                        seam.z + feet + 0.5f, outward, contact, wallModel);
@@ -343,6 +362,11 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                     f.pos = { c[0], c[1], seam.z + feet };
                     // floor plane is set consistently from the seam in the finalize
                     // block below (was te.plane here = origin-z, inconsistent).
+                    // NOTE: don't source models from te/t0 here — the zero-epsilon
+                    // sweep (t0) can sail past the func_wall edge onto a worldspawn
+                    // surface, so t0.ent isn't the pixelwalk's wall. The flat wall
+                    // comes from FindOutwardAndContact (into-wall probe) in finalize;
+                    // the sim path below sim-sources it when it also fires.
                     f.by_probe = true;
                     got = true;
                     break;
@@ -391,6 +415,10 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                             if (!f.by_probe) f.pos = { startC[0], startC[1], seam.z + feet };
                             f.by_walk = true;
                             if (ea.hang_frames > f.advanced) f.advanced = (float)ea.hang_frames;
+                            // Sim-sourced models from the actual catch frame (override
+                            // the probe's if valid; the full sim is the ground truth).
+                            if (modelOf(ea.catch_floor_ent) >= 0) catchFloorModel = modelOf(ea.catch_floor_ent);
+                            if (modelOf(ea.catch_wall_ent)  >= 0) catchWallModel  = modelOf(ea.catch_wall_ent);
                             got = true;
                             break;
                         }
@@ -398,10 +426,23 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                 }
             }
           } else if (cfg.do_walk || cfg.do_fall) {   // ===== SLOPE (sim methods only) =====
-            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz, outward);
+            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz,
+                              outward, catchFloorModel, catchWallModel);
           }
 
             if (!got) continue;
+
+            // Models come from the actual winning catch (sim/probe); fall back to the
+            // candidate seam's face-paired models only if the catch didn't report one.
+            f.floor_model = (catchFloorModel >= 0) ? catchFloorModel : seam.floor_model;
+            f.wall_model  = (catchWallModel  >= 0) ? catchWallModel
+                                                   : (wallModel >= 0 ? wallModel : seam.wall_model);
+            // Model-index rule: the floor can only win the seam contest when
+            // floor_model <= wall_model (a fraction tie goes to the lower-index model
+            // in _PM_PlayerTrace). A pressed wall that OUT-ranks the floor would win,
+            // so wall<floor cannot be a real pixelwalk — drop it. (Empirically these
+            // are all sub-pixel noise: 0 survive --min-samples on mariocastle.)
+            if (f.floor_model >= 0 && f.wall_model >= 0 && f.wall_model < f.floor_model) continue;
 
             // Over-void gate: a genuine pixelwalk stand is over the void (no real
             // floor face under the hull center). Benign concave corners have real
@@ -420,8 +461,6 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
             // a single ramp (one plane) stays one zone.
             f.floor_normal = { seam.fn[0], seam.fn[1], seam.fn[2] };
             f.floor_dist = seam.fd;
-            f.floor_model = seam.floor_model;
-            f.wall_model = (wallModel >= 0) ? wallModel : seam.wall_model;
             out.push_back(f);
         }
     }
@@ -456,16 +495,19 @@ void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehul
     PmContext probe = pm;                     // report starting onground without snapping
     PM_CategorizePosition(&probe);
     auto pc = [&](const vec3_t o) { return PointContentsMulti(phys, usehull, o) == CONTENTS_SOLID ? 'S' : 'E'; };
-    std::printf("  frame  origin                              velocity                     onground  pc(E/S)  caughtFloor\n");
-    std::printf("  init   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c        %c\n",
+    std::printf("  frame  origin                              velocity                     onground  pc  cF  winFloor(model)  winWall(model)\n");
+    std::printf("  init   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c   %c\n",
                 pm.origin[0], pm.origin[1], pm.origin[2],
                 pm.velocity[0], pm.velocity[1], pm.velocity[2], probe.onground, pc(pm.origin), '-');
+    auto model_of = [&](int e){ return (e >= 0 && e < (int)phys.size()) ? phys[e].info : -1; };
+
     for (int f = 0; f < frames; ++f) {
         PM_PlayerMoveFrame(&pm);
-        std::printf("  %4d   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c        %c\n",
+        int fe = pm.flymove_floor_ent, we = pm.flymove_wall_ent;
+        std::printf("  %4d   (%9.3f,%9.3f,%9.3f)  (%8.1f,%8.1f,%8.1f)   %2d       %c   %c   ent%d(*%d)      ent%d(*%d)\n",
                     f, pm.origin[0], pm.origin[1], pm.origin[2],
                     pm.velocity[0], pm.velocity[1], pm.velocity[2], pm.onground, pc(pm.origin),
-                    (pm.flymove_blocked & 0x01) ? 'Y' : '.');
+                    (pm.flymove_blocked & 0x01) ? 'Y' : '.', fe, model_of(fe), we, model_of(we));
     }
 }
 
