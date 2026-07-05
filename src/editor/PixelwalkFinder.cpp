@@ -29,8 +29,7 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 	pw::FinderConfig cfg;             // defaults from finder.h
 	cfg.standing = true;             // --hull both
 	cfg.duck = true;
-	cfg.do_probe = false;            // --method sim = walk + fall, no probe
-	cfg.do_walk = true;
+	cfg.do_probe = false;            // --method sim = movement sim only, no probe
 	cfg.do_fall = true;
 	cfg.zones = true;                // --zones: group collinear finds into from->to spans
 	cfg.min_samples = 2;             // --min-samples=2: keep finds/zones with >=2 sub-pixel hits

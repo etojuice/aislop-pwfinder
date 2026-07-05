@@ -12,14 +12,12 @@ struct Find {
     std::array<float,3> pos{};        // resting hull-center world position
     int  usehull = 0;                 // 0 standing, 1 duck
     bool by_probe = false;
-    bool by_walk  = false;
-    bool by_fall  = false;
+    bool by_walk  = false;            // caught by the movement sim (--method sim)
     bool by_slope = false;            // caught on a tilted (ramp) floor pixel
     std::array<float,3> floor_normal{}; float floor_dist = 0;
     std::array<float,3> approach{};    // unit dir to walk (into the wall)
     int  floor_model = -1;
     int  wall_model  = -1;
-    int  fall_N = 0;                   // fall-drive frame count (fall finds only)
     float advanced = 0;               // units the epsilon let the hull gain
     int  cluster_size = 1;            // raw sample-hits merged into this spot
     // --zones: this find is a contiguous walkable SPAN. `pos` is one endpoint
@@ -33,8 +31,7 @@ struct FinderConfig {
     bool  standing = true;
     bool  duck     = true;
     bool  do_probe = true;
-    bool  do_walk  = true;
-    bool  do_fall  = true;
+    bool  do_fall  = true;            // the movement-sim path (walk-into-wall + gravity)
     float grid       = 1.0f / 64.0f;  // cross-seam sub-pixel step
     float band       = 0.5f;          // cross-seam half-window
     float along_step = 1.0f;          // step along the seam

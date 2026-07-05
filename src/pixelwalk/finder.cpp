@@ -62,22 +62,36 @@ int PointContentsMulti(const std::vector<physent_t>& phys, int usehull, const ve
     return CONTENTS_EMPTY;
 }
 
-// True if a player placed at `p` is on solid ground (PM_CategorizePosition's 2u
-// down-trace finds a walkable plane). A real pixelwalk spot is over the void
-// (airborne), so an on-ground start is a legitimate stand, not a pixelwalk.
-bool OnGroundAt(const std::vector<physent_t>& phys, int usehull, const vec3_t p) {
+// Ground pre-gate: teleport to `p` (no shift) and run ONE movement frame with NO
+// movement keys (pure gravity), then report whether the hull settled onto ground.
+// A real pixelwalk spot is over the void: it stays airborne because a straight-down
+// categorize can't see the horizontal-only pixel. A legitimate stand settles onto
+// real floor within the frame and is discarded. Run BEFORE the movement sim.
+bool SettlesOnGround(const std::vector<physent_t>& phys, int usehull, const vec3_t p) {
     PmContext pm;
     pm.usehull = usehull;
     pm.numphysent = (int)phys.size();
     pm.physents = phys.data();
     pm.dist_epsilon = PW_EPS;
-    pm.frametime = 0.01f;
+    pm.frametime = 0.01f;                 // 100 fps
+    pm.gravity = 1.0f;
+    pm.friction = 1.0f;
+    pm.movetype = MOVETYPE_WALK;
     pm.waterlevel = 0;
-    pm.waterjumptime = 0;
-    pm.onground = -1;
+    pm.waterjumptime = 0.0f;
+    pm.dead = 0;
+    pm.onground = -1;                     // start airborne (over the void)
+    pm.maxspeed = 250.0f;
+    pm.mv_gravity = 800.0f; pm.mv_bounce = 1.0f;
+    pm.mv_accelerate = 5.0f; pm.mv_airaccelerate = 10.0f;
+    pm.mv_stopspeed = 75.0f; pm.mv_friction = 4.0f; pm.mv_edgefriction = 2.0f;
+    pm.mv_stepsize = 18.0f; pm.mv_maxvelocity = 2000.0f;
+    pm.cmd_forwardmove = 0.0f; pm.cmd_sidemove = 0.0f;   // NO movement keys: pure gravity
+    pm.angles[0] = 0.0f; pm.angles[1] = 0.0f; pm.angles[2] = 0.0f;
     VectorCopy(p, pm.origin);
     VectorClear(pm.velocity);
-    PM_CategorizePosition(&pm);
+    VectorClear(pm.basevelocity);
+    PM_PlayerMoveFrame(&pm);             // one pure-gravity frame; categorizes internally
     return pm.onground != -1;
 }
 
@@ -108,7 +122,7 @@ inline bool HitWall(const pmtrace_t& t) {
 // and slides sideways while gravity keeps dipping them into the floor plane). A
 // pixelwalk slides far while barely dropping; a clean map just falls. Reports how
 // far the hull moved horizontally and how far it dropped over `nframes`. ---
-struct SimOut { float moved; float dropped; vec3_t endpos; int onground_f2; int hang_frames;
+struct SimOut { float moved; float dropped; vec3_t endpos; int hang_frames;
                int catch_frames; vec3_t catch_pos;
                int catch_floor_ent; int catch_wall_ent; };   // physents that won on the
                                                              // catch frame (-1 none) -> models
@@ -144,12 +158,11 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     VectorClear(pm.velocity);
     VectorClear(pm.basevelocity);
 
-    int og2 = -1, hang = 0, caught = 0;
+    int hang = 0, caught = 0;
     int cfe = -1, cwe = -1;                       // floor/wall physents on the catch frame
     vec3_t catch_pos; VectorClear(catch_pos);
     for (int f = 0; f < nframes; ++f) {
         PM_PlayerMoveFrame(&pm);
-        if (f == 1) og2 = pm.onground;   // onground after the 2nd movement frame
         bool free_space = PointContentsMulti(phys, usehull, pm.origin) != CONTENTS_SOLID;
         // A "hang" frame: airborne, in FREE SPACE, but the floor plane clipped the
         // fall so end-of-frame vertical velocity is still just the half-gravity dip
@@ -180,7 +193,6 @@ SimOut SimDrive(const std::vector<physent_t>& phys, int usehull, const vec3_t st
     float dx = pm.origin[0] - start[0], dy = pm.origin[1] - start[1];
     o.moved = std::sqrt(dx*dx + dy*dy);
     o.dropped = start[2] - pm.origin[2];
-    o.onground_f2 = og2;
     o.hang_frames = hang;
     o.catch_frames = caught;
     VectorCopy(catch_pos, o.catch_pos);
@@ -381,7 +393,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
             // the floor plane catches the fall each frame so the hull HANGS (small
             // drop); on a clean map it just falls. Detect via the drop differential
             // (epsilon on vs off) so it's intrinsic to one map. ----
-            if (cfg.do_walk || cfg.do_fall) {
+            if (cfg.do_fall) {
                 const int NF = 15;
                 vec3_t md = { -outward[0], -outward[1], 0.0f };   // +forward INTO the wall
                 // Sweep the start across the ~1/32 pixel band around the wall clip
@@ -391,14 +403,12 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                 for (float o = -0.05f; o <= 0.15f + 1e-6f; o += cfg.grid) {
                     vec3_t startC = { contact[0] + outward[0]*o, contact[1] + outward[1]*o, cz };
                     if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
-                    // A real pixelwalk start is over the void (airborne). If the
-                    // player is already on ground here it's a legitimate stand -
-                    // skip the sim (unless --skip-categorize-pos disables this).
-                    if (!cfg.skip_categorize && OnGroundAt(phys, usehull, startC)) continue;
+                    // Ground pre-gate (separate from the movement sim): teleport here
+                    // and let ONE pure-gravity frame act. If the hull settles on real
+                    // floor it's a legitimate stand, not a pixelwalk - skip it (unless
+                    // --skip-categorize-pos disables this).
+                    if (!cfg.skip_categorize && SettlesOnGround(phys, usehull, startC)) continue;
                     SimOut ea = SimDrive(phys, usehull, startC, md, PW_EPS, NF);
-                    // If the player has landed on ground by the end of the 2nd frame
-                    // it settled on a real floor (legitimate stand), not a pixelwalk.
-                    if (!cfg.skip_categorize && ea.onground_f2 != -1) continue;
                     // Pixelwalk requires BOTH:
                     //  (1) the hull HANGS FREELY with the pixel — vz pinned at ~-4
                     //      (floor clips the fall), airborne, origin not embedded; AND
@@ -425,7 +435,7 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
                     }
                 }
             }
-          } else if (cfg.do_walk || cfg.do_fall) {   // ===== SLOPE (sim methods only) =====
+          } else if (cfg.do_fall) {   // ===== SLOPE (sim method only) =====
             got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz,
                               outward, catchFloorModel, catchWallModel);
           }
@@ -437,12 +447,14 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
             f.floor_model = (catchFloorModel >= 0) ? catchFloorModel : seam.floor_model;
             f.wall_model  = (catchWallModel  >= 0) ? catchWallModel
                                                    : (wallModel >= 0 ? wallModel : seam.wall_model);
-            // Model-index rule: the floor can only win the seam contest when
-            // floor_model <= wall_model (a fraction tie goes to the lower-index model
-            // in _PM_PlayerTrace). A pressed wall that OUT-ranks the floor would win,
-            // so wall<floor cannot be a real pixelwalk — drop it. (Empirically these
-            // are all sub-pixel noise: 0 survive --min-samples on mariocastle.)
-            if (f.floor_model >= 0 && f.wall_model >= 0 && f.wall_model < f.floor_model) continue;
+            // Model-index rule: a real pixelwalk needs the floor to WIN the seam
+            // contest, which across models requires strict floor_model < wall_model
+            // (a coincident-plane tie goes to the lower index in _PM_PlayerTrace, so
+            // wall<=floor means the wall wins). Same-model floor==wall catches turn
+            // out to be transient false positives in practice (not a standable stand;
+            // every confirmed pixelwalk here — incl. the golden fixture — is
+            // cross-model floor<wall). So require STRICT floor < wall; drop wall<=floor.
+            if (f.floor_model >= 0 && f.wall_model >= 0 && f.wall_model <= f.floor_model) continue;
 
             // Over-void gate: a genuine pixelwalk stand is over the void (no real
             // floor face under the hull center). Benign concave corners have real
@@ -550,13 +562,11 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 Find& g = finds[it->second];
                 g.by_probe |= f.by_probe;
                 g.by_walk  |= f.by_walk;
-                g.by_fall  |= f.by_fall;
                 g.by_slope |= f.by_slope;
                 if (f.by_probe && (g.floor_normal[0]==0&&g.floor_normal[1]==0&&g.floor_normal[2]==0)) {
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
                 }
                 if (f.advanced > g.advanced) g.advanced = f.advanced;
-                if (f.fall_N && !g.fall_N) g.fall_N = f.fall_N;
             }
         }
     }
@@ -580,13 +590,13 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
             } else {
                 Find& g = clustered[it->second];
                 g.cluster_size++;
-                g.by_probe |= f.by_probe; g.by_walk |= f.by_walk; g.by_fall |= f.by_fall;
+                g.by_probe |= f.by_probe; g.by_walk |= f.by_walk;
                 g.by_slope |= f.by_slope;
                 if (f.advanced > g.advanced) {   // keep the strongest representative
                     g.pos = f.pos; g.advanced = f.advanced;
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
                     g.approach = f.approach; g.floor_model = f.floor_model;
-                    g.wall_model = f.wall_model; g.fall_N = f.fall_N;
+                    g.wall_model = f.wall_model;
                 }
             }
         }
@@ -649,11 +659,11 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 bool haveN = nonzeroN(z.floor_normal);
                 for (size_t k = i; k <= j; ++k) {
                     z.by_probe |= g[k].by_probe; z.by_walk |= g[k].by_walk;
-                    z.by_fall  |= g[k].by_fall;  z.by_slope |= g[k].by_slope;
+                    z.by_slope |= g[k].by_slope;
                     if (g[k].advanced > z.advanced) {   // strongest sample -> representative
                         z.advanced = g[k].advanced;
                         z.approach = g[k].approach; z.floor_model = g[k].floor_model;
-                        z.wall_model = g[k].wall_model; z.fall_N = g[k].fall_N;
+                        z.wall_model = g[k].wall_model;
                     }
                     if (!haveN && nonzeroN(g[k].floor_normal)) {   // plane from a probe/slope hit
                         z.floor_normal = g[k].floor_normal; z.floor_dist = g[k].floor_dist;
@@ -671,8 +681,8 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
     // most-sampled/strongest within each group.
     std::sort(finds.begin(), finds.end(), [](const Find& a, const Find& b) {
         if (a.usehull != b.usehull) return a.usehull < b.usehull;   // standing(0) before duck(1)
-        bool as = a.by_walk || a.by_fall || a.by_slope;   // has the sim method?
-        bool bs = b.by_walk || b.by_fall || b.by_slope;
+        bool as = a.by_walk || a.by_slope;   // has the sim method?
+        bool bs = b.by_walk || b.by_slope;
         if (as != bs) return as > bs;                                // sim-detected first
         if (a.cluster_size != b.cluster_size) return a.cluster_size > b.cluster_size;
         return a.advanced > b.advanced;
