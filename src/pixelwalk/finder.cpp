@@ -24,7 +24,7 @@ constexpr int   CATCH_MIN = 3;
 // Flat floors -> constant; slopes -> varies along the seam.
 float floorZAt(const Seam& s, float x, float y) {
     float nz = s.fn[2];
-    if (std::fabs(nz) < 1e-4f) return s.z;
+    if (std::fabs(nz) < 1e-4f) return s.a[2];   // degenerate plane: fall back to endpoint z
     return (s.fd - s.fn[0]*x - s.fn[1]*y) / nz;
 }
 
@@ -236,7 +236,6 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FinderConfig& cf
 
             Find f;
             f.pos = { startC[0], startC[1], startC[2] };
-            f.by_walk = true;
             f.by_slope = seam.slope;
             f.advanced = (float)ea.catch_frames;
             // Models from the actual winning catch; fall back to the seam's floor model.
@@ -342,7 +341,6 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
                 finds.push_back(f);
             } else {
                 Find& g = finds[it->second];
-                g.by_walk  |= f.by_walk;
                 g.by_slope |= f.by_slope;
                 if (f.advanced > g.advanced) g.advanced = f.advanced;
             }
@@ -368,7 +366,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
             } else {
                 Find& g = clustered[it->second];
                 g.cluster_size++;
-                g.by_walk |= f.by_walk; g.by_slope |= f.by_slope;
+                g.by_slope |= f.by_slope;
                 if (f.advanced > g.advanced) {   // keep the strongest representative
                     g.pos = f.pos; g.advanced = f.advanced;
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
@@ -435,13 +433,13 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
                 z.advanced = 0.0f;
                 bool haveN = nonzeroN(z.floor_normal);
                 for (size_t k = i; k <= j; ++k) {
-                    z.by_walk |= g[k].by_walk; z.by_slope |= g[k].by_slope;
+                    z.by_slope |= g[k].by_slope;
                     if (g[k].advanced > z.advanced) {   // strongest sample -> representative
                         z.advanced = g[k].advanced;
                         z.approach = g[k].approach; z.floor_model = g[k].floor_model;
                         z.wall_model = g[k].wall_model;
                     }
-                    if (!haveN && nonzeroN(g[k].floor_normal)) {   // plane from a probe/slope hit
+                    if (!haveN && nonzeroN(g[k].floor_normal)) {   // plane from a slope hit
                         z.floor_normal = g[k].floor_normal; z.floor_dist = g[k].floor_dist;
                         haveN = true;
                     }
@@ -453,13 +451,9 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
         finds.swap(zones);
     }
 
-    // Order: stance (standing then duck), then method (sim first), then
-    // most-sampled/strongest within each group.
+    // Order: stance (standing then duck), then most-sampled/strongest within each group.
     std::sort(finds.begin(), finds.end(), [](const Find& a, const Find& b) {
         if (a.usehull != b.usehull) return a.usehull < b.usehull;   // standing(0) before duck(1)
-        bool as = a.by_walk || a.by_slope;   // has the sim method?
-        bool bs = b.by_walk || b.by_slope;
-        if (as != bs) return as > bs;                                // sim-detected first
         if (a.cluster_size != b.cluster_size) return a.cluster_size > b.cluster_size;
         return a.advanced > b.advanced;
     });

@@ -11,7 +11,6 @@ namespace pw {
 struct Find {
     std::array<float,3> pos{};        // resting hull-center world position
     int  usehull = 0;                 // 0 standing, 1 duck
-    bool by_walk  = false;            // caught by the movement-sim detector
     bool by_slope = false;            // caught on a tilted (ramp) floor pixel
     std::array<float,3> floor_normal{}; float floor_dist = 0;
     std::array<float,3> approach{};    // unit dir to walk (into the wall)
@@ -30,7 +29,6 @@ struct FinderConfig {
     bool  standing = true;
     bool  duck     = true;
     float grid       = 1.0f / 64.0f;  // cross-seam sub-pixel step
-    float band       = 0.5f;          // cross-seam half-window
     float along_step = 1.0f;          // step along the seam
     int   max_finds  = 0;             // 0 = unlimited
     int   min_samples = 6;            // drop finds with fewer than this many sub-pixel hits

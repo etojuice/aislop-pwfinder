@@ -115,8 +115,8 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
                                 if (b2.contents == CONTENTS_SOLID && PointInBrush(b2, lp, 0.0f)) { interior = true; break; }
                             if (interior) continue;
                             Seam s;
-                            s.a = A; s.b = B; s.z = A[2]; s.outn = { px, py, 0.0f };
-                            s.floor_model = (int)m; s.wall_model = -1; s.method = 'C';
+                            s.a = A; s.b = B; s.outn = { px, py, 0.0f };
+                            s.floor_model = (int)m; s.wall_model = -1;
                             s.fn = face.n; s.fd = cf.d; s.slope = face.n[2] < SLOPE_FLAT_NZ;
                             s.usehull = uh;
                             seams.push_back(s); ++nEdge;
@@ -174,9 +174,9 @@ std::vector<Seam> EnumerateSeams(const Map& map, const WorldModels& wm, bool ver
                 std::array<float,2> oa, ob;
                 if (!ClipLineToBox(wl.nx, wl.ny, wl.dd, clip, oa, ob)) continue;
                 Seam s;
-                s.a = { oa[0], oa[1], fz }; s.b = { ob[0], ob[1], fz }; s.z = fz;
+                s.a = { oa[0], oa[1], fz }; s.b = { ob[0], ob[1], fz };
                 s.outn = wl.outn; s.floor_model = f.model; s.wall_model = wl.model;
-                s.method = 'C'; s.fn = f.n; s.fd = f.d; s.slope = false; s.usehull = uh;
+                s.fn = f.n; s.fd = f.d; s.slope = false; s.usehull = uh;
                 seams.push_back(s); ++nB;
             }
         }

@@ -22,7 +22,6 @@ struct WorldModels {
     std::vector<char>        model_solid;       // 1 if traced as SOLID_BSP
     std::vector<std::string> model_classname;
     std::vector<std::array<float,3>> model_origin;
-    std::vector<std::array<float,3>> model_angles;
 };
 
 // Parses map.entities, classifies solidity, and wires physents to `models`

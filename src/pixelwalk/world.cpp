@@ -98,7 +98,6 @@ WorldModels BuildWorld(const Map& map, const std::vector<model_t>& models) {
     wm.model_solid.assign(nmodels, 0);
     wm.model_classname.assign(nmodels, "");
     wm.model_origin.assign(nmodels, {0, 0, 0});
-    wm.model_angles.assign(nmodels, {0, 0, 0});
 
     // World (model 0).
     wm.world.model = models.empty() ? nullptr : &models[0];
@@ -138,7 +137,6 @@ WorldModels BuildWorld(const Map& map, const std::vector<model_t>& models) {
 
         wm.model_classname[idx] = cn;
         wm.model_origin[idx] = origin;
-        wm.model_angles[idx] = angles;
 
         if (!classname_is_solid(cn)) continue;
         wm.model_solid[idx] = 1;
