@@ -1,8 +1,10 @@
 ---
 name: C/C++ CI
 on:
-  - push
-  - pull_request
+  push:
+  pull_request:
+  release:
+    types: [published]
 permissions:
   contents: write
 jobs:
@@ -12,10 +14,14 @@ jobs:
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
     steps:
-      - name: Generate nightly release tag
+      - name: Choose release tag
         id: tag
-        run: >
-          echo "release_tag=NightBuild_$(date +"%Y.%m.%d_%H-%M")" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "release_tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "release_tag=NightBuild_$(date +"%Y.%m.%d_%H-%M")" >> $GITHUB_OUTPUT
+          fi
   linux_build:
     name: Linux
     needs: get_time_build
@@ -56,6 +62,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             build/newbspguy_ubuntu_release.zip
   window_build:
@@ -89,13 +96,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             build/newbspguy_win7_x64_release.zip
 
       - name: Build Debug
+        if: ${{ github.event_name != 'release' }}   # nightly only; excluded from releases
         run: |
           msbuild ${{ env.solution }} -m /p:Configuration=DebugGithub /p:Platform=x64
       - name: Create Windows debug archive
+        if: ${{ github.event_name != 'release' }}
         run: >
           mkdir -p build\win64_debug
           
@@ -105,14 +115,17 @@ jobs:
           
           Compress-Archive -Path "build\win64_debug\*" -DestinationPath "build\newbspguy_win7_x64_dbg.zip"
       - name: Publish nightly debug binaries for windows 7+
+        if: ${{ github.event_name != 'release' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             build/newbspguy_win7_x64_dbg.zip
   window_build_gcc:
     name: Windows GCC
     needs: get_time_build
+    if: ${{ github.event_name != 'release' }}   # nightly only; excluded from releases
     runs-on: windows-latest
     defaults:
       run:
@@ -167,5 +180,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             build/newbspguy_win7_x64_gcc_release.zip
