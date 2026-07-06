@@ -243,9 +243,10 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FinderConfig& cf
             int cfm = modelOf(ea.catch_floor_ent), cwm = modelOf(ea.catch_wall_ent);
             f.floor_model = (cfm >= 0) ? cfm : seam.floor_model;
             f.wall_model  = (cwm >= 0) ? cwm : seam.wall_model;
-            // Model-index rule: the floor wins the seam only if floor_model < wall_model
-            // (a coincident-plane tie goes to the lower index). Drop wall <= floor.
-            if (f.floor_model >= 0 && f.wall_model >= 0 && f.wall_model <= f.floor_model) continue;
+            // A pixelwalk is a floor+wall seam that the floor wins: require a real
+            // wall out-ranking the floor, i.e. keep only 0 <= floor_model < wall_model.
+            // Drop wall-less catches (over-void ramp, wall_model < 0) and wall <= floor.
+            if (f.wall_model < 0 || (f.floor_model >= 0 && f.wall_model <= f.floor_model)) continue;
 
             long long key = PosKey(f.pos, usehull);
             if (!seen.insert(key).second) continue;
