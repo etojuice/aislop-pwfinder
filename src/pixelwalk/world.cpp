@@ -78,6 +78,18 @@ bool classname_is_solid(const std::string& cn) {
     return true;
 }
 
+// Linear movers whose Spawn calls SetMovedir (ReGameDLL): the "angles" keyvalue is the
+// OPEN/move direction, consumed into pev->movedir with pev->angles then CLEARED, so the
+// brush is NOT rotated in-game. We must trace them axis-aligned (matching both the
+// engine's spawn state and the unrotated clipnode decompile) - otherwise a door with
+// e.g. angles "0 90 0" is rotated 90deg about the origin and lands far from its true
+// position, so pixelwalks on it are missed. Genuine rotators (func_rotating, func_pendulum,
+// func_door_rotating, *_rot_button) and static func_wall keep their angles.
+bool classname_clears_angles(const std::string& cn) {
+    return cn == "func_door" || cn == "func_water" || cn == "momentary_door"
+        || cn == "func_button" || cn == "func_conveyor";
+}
+
 } // namespace
 
 WorldModels BuildWorld(const Map& map, const std::vector<model_t>& models) {
@@ -134,7 +146,9 @@ WorldModels BuildWorld(const Map& map, const std::vector<model_t>& models) {
         SolidBrush sb;
         sb.pe.model = &models[idx];
         for (int k = 0; k < 3; ++k) sb.pe.origin[k] = origin[k];
-        for (int k = 0; k < 3; ++k) sb.pe.angles[k] = angles[k];
+        // Movers clear their spawn angles (SetMovedir) -> trace them unrotated.
+        bool keep_rot = !classname_clears_angles(cn);
+        for (int k = 0; k < 3; ++k) sb.pe.angles[k] = keep_rot ? angles[k] : 0.0f;
         sb.pe.solid = SOLID_BSP;
         sb.pe.skin = 0;
         sb.pe.rendermode = rendermode;
