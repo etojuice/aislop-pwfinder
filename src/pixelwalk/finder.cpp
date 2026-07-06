@@ -15,28 +15,10 @@ namespace pw {
 namespace {
 
 constexpr float PW_EPS = 0.03125f;    // engine DIST_EPSILON
-constexpr int   HANG_MIN = 3;         // min frames the hull must hang FREELY on the pixel
-constexpr float FALL_MIN = 4.0f;      // without the pixel, "falls far" if it drops more than this
-// Per-frame gravity dip (sv_gravity 800, 100 fps): 800*0.5*0.01. While hanging on
-// a horizontal pixel plane the floor clips the fall so end-of-frame vz stays here.
+// Per-frame gravity dip (sv_gravity 800, 100 fps): 800*0.5*0.01. Kept for SimDrive's
+// hang bookkeeping. CATCH_MIN = min frames the hull must stay caught on the pixel.
 constexpr float HANG_VZ = -4.0f;
-constexpr int   CATCH_MIN = 3;        // min frames the hull stays caught on a slope pixel
-// Slope-pixel z-scan: the catch sits on the hull-EXPANDED ramp plane, ~feet+[0..1]
-// above the ramp surface (GoldSrc's non-axial expansion isn't surface+36 exactly),
-// in a razor-thin (~0.1u) band. Sweep the hull-center height across this window
-// (relative to the ramp SURFACE z at the sample xy) at a sub-band step to hit it.
-// Slope catch height above the ramp SURFACE = feet + a stance-dependent "extra"
-// (the non-axial GoldSrc clip expansion, which is NOT feet exactly): measured
-// +0.79 standing, +6.07 duck at the 45° limit, 0 for near-flat ramps. So scan
-// hull-center z = surface + feet + extra, extra over this range (feet-relative so it
-// works for both stances). Step < the ~0.035u catch band.
-constexpr float SLOPE_EXTRA_LO = -1.0f;  // low  extra above (surface + feet)
-constexpr float SLOPE_EXTRA_HI =  8.0f;  // high extra above (surface + feet) (covers duck +6.07)
-constexpr float SLOPE_ZSTEP    = 0.05f;  // z step: < the ~0.035u catch band. Coarser (0.1) skips
-                                         //   whole seam columns (the 3-frame fall-in reach is small),
-                                         //   dropping real finds — keep it fine.
-
-float feetOffset(int usehull) { return -PLAYER_MINS[usehull][2]; }  // 36 or 18
+constexpr int   CATCH_MIN = 3;
 
 // Height of the floor face's plane at (x,y): z = (fd - fn.x*x - fn.y*y)/fn.z.
 // Flat floors -> constant; slopes -> varies along the seam.
@@ -93,28 +75,6 @@ bool SettlesOnGround(const std::vector<physent_t>& phys, int usehull, const vec3
     VectorClear(pm.basevelocity);
     PM_PlayerMoveFrame(&pm);             // one pure-gravity frame; categorizes internally
     return pm.onground != -1;
-}
-
-// --- PROBE: reproduce one real pixelwalk step. From an airborne hull center `c`
-// on the void side of the wall clip plane, sweep exactly like a player walking
-// into the wall while gravity dips them (horizontal into-wall + small down),
-// one player frame at 100 fps (cmd.msec=10, frametime=0.01). ---
-pmtrace_t ProbeSweep(PmContext& pm, const vec3_t c, const vec3_t outward, float eps) {
-    pm.dist_epsilon = eps;
-    const float HORIZ = 250.0f * 0.01f;                 // 250 u/s run * 0.01 = 2.5
-    const float DOWN  = 800.0f * 0.5f * 0.01f * 0.01f;  // gravity dip = 0.04 (> DIST_EPSILON)
-    vec3_t p1 = { c[0], c[1], c[2] };
-    vec3_t p2 = { c[0] - outward[0]*HORIZ, c[1] - outward[1]*HORIZ, c[2] - DOWN };
-    return PM_PlayerTrace(&pm, p1, p2, PM_NORMAL, -1);
-}
-inline bool HitFloor(const pmtrace_t& t) {
-    return t.fraction < 1.0f && !t.startsolid && !t.allsolid && t.plane.normal[2] >= 0.7f;
-}
-// "Blocked by a wall": a real impact that is NOT a floor (vertical/steep). Used
-// as the zero-epsilon reference so we only accept a genuine WALL->floor flip, not
-// EMPTY->floor (which is just walking off an ordinary ledge into open air).
-inline bool HitWall(const pmtrace_t& t) {
-    return t.fraction < 1.0f && !t.startsolid && !t.allsolid && t.plane.normal[2] < 0.7f;
 }
 
 // --- SIM: airborne, falling player doing in-air movement ALONG the seam (the
@@ -209,95 +169,17 @@ long long PosKey(const std::array<float,3>& p, int usehull) {
     return (((x & 0x1FFFFF) << 43) ^ ((y & 0x1FFFFF) << 22) ^ ((z & 0x1FFFFF) << 1) ^ usehull);
 }
 
-// Find the away-from-wall direction and the hull center resting against the wall
-// near `base` at height `cz`. The pixelwalk "red square" sits at the wall CLIP
-// plane, ~hull-half-width out from the wall surface, so we locate it with a
-// horizontal trace into the wall (constant z never touches the floor plane).
-// Tries both signs of the candidate seam normal. Returns false if no wall.
-bool FindOutwardAndContact(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
-                           const vec3_t base, const vec3_t seamOut, float cz,
-                           vec3_t outward, vec3_t contact, int& wallModel) {
-    pm.usehull = usehull;
-    pm.dist_epsilon = PW_EPS;
-    for (int sgn = 0; sgn < 2; ++sgn) {
-        vec3_t d = { seamOut[0], seamOut[1], 0.0f };
-        if (sgn == 1) { d[0] = -d[0]; d[1] = -d[1]; }
-        vec3_t far_  = { base[0] + d[0]*24.0f, base[1] + d[1]*24.0f, cz };
-        vec3_t near_ = { base[0] - d[0]*8.0f,  base[1] - d[1]*8.0f,  cz };
-        if (PointContentsMulti(phys, usehull, far_) == CONTENTS_SOLID) continue;
-        pmtrace_t wc = PM_PlayerTrace(&pm, far_, near_, PM_NORMAL, -1);
-        if (wc.startsolid || wc.fraction >= 1.0f) continue;
-        if (std::fabs(wc.plane.normal[2]) >= 0.3f) continue;   // must be a (near-)vertical wall
-        outward[0] = d[0]; outward[1] = d[1]; outward[2] = 0.0f;
-        VectorCopy(wc.endpos, contact);
-        wallModel = (wc.ent >= 0 && wc.ent < (int)phys.size()) ? phys[wc.ent].info : -1;
-        return true;
-    }
-    return false;
-}
-
-// Detect a pixelwalk on a TILTED (ramp) floor at one along-seam sample. Unlike a
-// flat pixel (fixed height), the catch sits on the hull-EXPANDED ramp plane in a
-// razor-thin (~0.1u) band whose exact height GoldSrc's non-axial clip expansion
-// doesn't put at surface+36 — so we sweep the hull-center height across a small
-// window above the ramp SURFACE (computed from the floor plane) and sub-pixel
-// across the wall clip plane, teleport-testing the generalized CATCH criterion.
-bool SlopeDetect(PmContext& pm, const std::vector<physent_t>& phys, int usehull,
-                 const Seam& seam, float feet, const vec3_t base, const vec3_t outn,
-                 const FinderConfig& cfg, Find& f, int& wallModel, float& ovz,
-                 vec3_t outward, int& catchFloorModel, int& catchWallModel) {
-    float surf = floorZAt(seam, base[0], base[1]);      // ramp surface z at the sample xy
-    vec3_t sbase = { base[0], base[1], surf + feet };
-    vec3_t soutward, scontact; int swall = -1;
-    if (!FindOutwardAndContact(pm, phys, usehull, sbase, outn, surf + feet + 0.5f,
-                               soutward, scontact, swall))
-        return false;
-    float surfc = floorZAt(seam, scontact[0], scontact[1]);   // surface at the clip-plane xy
-    vec3_t md = { -soutward[0], -soutward[1], 0.0f };          // +forward INTO the wall
-    const int NF = 15;
-    // Standing's catch sits just above feet (~+0.8 max); duck's is much higher
-    // (~+6). Cap the tall-hull scan tighter so it stays cheap without missing it.
-    float extraHi = (feet >= 30.0f) ? 2.5f : SLOPE_EXTRA_HI;
-    for (float extra = SLOPE_EXTRA_LO; extra <= extraHi + 1e-6f; extra += SLOPE_ZSTEP) {
-        float czs = surfc + feet + extra;   // feet-relative: works for standing AND duck
-        for (float o = -0.05f; o <= 0.15f + 1e-6f; o += cfg.grid) {
-            vec3_t startC = { scontact[0] + soutward[0]*o, scontact[1] + soutward[1]*o, czs };
-            if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
-            // Cheap pre-filter: the ramp catch fires within the first frames, so a
-            // short 3-frame sim rejects the vast majority of (z, sub-pixel) samples
-            // that just fall — only a caught sample pays for the full sim.
-            SimOut e1 = SimDrive(phys, usehull, startC, md, PW_EPS, 3);
-            if (e1.catch_frames < 1) continue;
-            SimOut ea = SimDrive(phys, usehull, startC, md, PW_EPS, NF);
-            if (ea.catch_frames < CATCH_MIN) continue;         // must catch the ramp with the pixel
-            SimOut eb = SimDrive(phys, usehull, startC, md, 0.0f, NF);
-            if (eb.catch_frames >= CATCH_MIN) continue;        // real ramp (caught both ways) -> reject
-            f.pos = { startC[0], startC[1], startC[2] };
-            f.floor_normal = { seam.fn[0], seam.fn[1], seam.fn[2] };
-            f.floor_dist = seam.fd;
-            f.by_slope = true;
-            f.advanced = (float)ea.catch_frames;
-            wallModel = (swall >= 0) ? swall : wallModel;      // FindOutwardAndContact fallback
-            // Source BOTH models from the actual winning catch, not the fixed-height
-            // wall probe (which lands at surf+feet+0.5 and mis-reports coincident
-            // walls, e.g. worldspawn's end-cap winning a tie it shouldn't). The sim
-            // observes the real collision at the catch height, whatever it is.
-            auto mo = [&](int e){ return (e >= 0 && e < (int)phys.size()) ? phys[e].info : -1; };
-            if (mo(ea.catch_floor_ent) >= 0) catchFloorModel = mo(ea.catch_floor_ent);
-            if (mo(ea.catch_wall_ent)  >= 0) catchWallModel  = mo(ea.catch_wall_ent);
-            ovz = startC[2] - feet;                            // feet height for the over-void gate
-            VectorCopy(soutward, outward);                     // hand back the ramp-height outward
-                                                              // dir so f.approach/yaw are correct
-            return true;
-        }
-    }
-    return false;
-}
-
-void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floors,
-                 const FinderConfig& cfg,
+// Detect pixelwalks along one clip-brush FLOOR-FACE EDGE seam (expanded frame).
+// The seam is already at hull-center height for its stance, so there is no +feet,
+// no z-scan, and no wall re-derivation: place the hull center directly on the
+// expanded floor plane, sub-pixel sweep across the edge, drive over it, and apply
+// the catch + pixel-dependence test.
+void ProcessSeam(const Seam& seam, const WorldModels& wm, const FinderConfig& cfg,
                  std::vector<Find>& out, std::unordered_set<long long>& seen) {
-    // seam geometry
+    int usehull = seam.usehull;                       // per-stance seam
+    if (usehull == 0 && !cfg.standing) return;
+    if (usehull == 1 && !cfg.duck)     return;
+
     vec3_t a = { seam.a[0], seam.a[1], seam.a[2] };
     vec3_t b = { seam.b[0], seam.b[1], seam.b[2] };
     vec3_t outn = { seam.outn[0], seam.outn[1], 0.0f };
@@ -310,170 +192,69 @@ void ProcessSeam(const Seam& seam, const WorldModels& wm, const FloorIndex& floo
     if (len < 1e-3f) return;
     dir[0] /= len; dir[1] /= len;
 
-    // Physents near this seam (world + overlapping solid brush ents). For a slope
-    // the catch height varies along the seam, so widen the z query to the ramp
-    // surface range (+ the hull-center offset window) over the endpoints.
-    float zlo = seam.z, zhi = seam.z;
-    if (seam.slope) {
-        // catch height = surface + feet + extra; cover the tallest hull (feet 36).
-        float za = floorZAt(seam, a[0], a[1]), zb = floorZAt(seam, b[0], b[1]);
-        zlo = std::min(za, zb); zhi = std::max(za, zb) + 36.0f + SLOPE_EXTRA_HI;
-    }
+    // Physents near this seam. The seam z is already the hull-center height; cover
+    // the expanded-plane range along the edge plus a margin.
+    float za = floorZAt(seam, a[0], a[1]), zb = floorZAt(seam, b[0], b[1]);
+    float zlo = std::min(za, zb), zhi = std::max(za, zb);
     float qmins[3] = { std::min(a[0],b[0]) - 64, std::min(a[1],b[1]) - 64, zlo - 96 };
-    float qmaxs[3] = { std::max(a[0],b[0]) + 64, std::max(a[1],b[1]) + 64, zhi + 128 };
+    float qmaxs[3] = { std::max(a[0],b[0]) + 64, std::max(a[1],b[1]) + 64, zhi + 96 };
     std::vector<physent_t> phys;
     SelectPhysents(wm, qmins, qmaxs, phys);
 
     PmContext pm;
     pm.numphysent = (int)phys.size();
     pm.physents = phys.data();
+    pm.usehull = usehull;
     auto modelOf = [&phys](int e){ return (e >= 0 && e < (int)phys.size()) ? phys[e].info : -1; };
 
-    int stances[2]; int ns = 0;
-    if (cfg.standing) stances[ns++] = 0;
-    if (cfg.duck)     stances[ns++] = 1;
+    const int   NF   = 15;
+    const float BAND = 0.2f;                           // sub-pixel sweep across the edge
+    vec3_t md = { -outn[0], -outn[1], 0.0f };          // +forward over the edge (into void/wall)
 
-    for (int si = 0; si < ns; ++si) {
-        int usehull = stances[si];
-        pm.usehull = usehull;
-        float feet = feetOffset(usehull);
-        float cz = seam.z + feet;   // hull-center height with feet on the seam floor
+    for (float t = 0.0f; t <= len + 1e-3f; t += cfg.along_step) {
+        float tt = std::min(t, len);
+        for (float o = -BAND; o <= BAND + 1e-6f; o += cfg.grid) {
+            float x = a[0] + dir[0]*tt + outn[0]*o;
+            float y = a[1] + dir[1]*tt + outn[1]*o;
+            vec3_t startC = { x, y, floorZAt(seam, x, y) };   // hull center ON the expanded plane
+            if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
+            // Categorize pre-gate: a real pixelwalk start is over the void (airborne);
+            // if a pure-gravity frame settles it onto real floor it's a legit stand.
+            if (!cfg.skip_categorize && SettlesOnGround(phys, usehull, startC)) continue;
 
-        for (float t = 0.0f; t <= len + 1e-3f; t += cfg.along_step) {
-            float tt = std::min(t, len);
-            vec3_t base = { a[0] + dir[0]*tt, a[1] + dir[1]*tt, cz };
+            // Cheap pre-filter: a real catch fires within the first frames, so a
+            // 3-frame sim rejects the vast majority of samples that just fall before
+            // paying for the two full sims.
+            SimOut e1 = SimDrive(phys, usehull, startC, md, PW_EPS, 3);
+            if (e1.catch_frames < 1) continue;
+            // Catch + pixel-dependence: with the pixel the floor plane keeps clipping
+            // the fall (caught); without it the hull cannot stand (falls / embeds).
+            SimOut ea = SimDrive(phys, usehull, startC, md, PW_EPS, NF);
+            if (ea.catch_frames < CATCH_MIN) continue;
+            SimOut eb = SimDrive(phys, usehull, startC, md, 0.0f, NF);
+            if (eb.catch_frames >= CATCH_MIN) continue;       // caught both ways -> real, reject
 
             Find f;
-            bool got = false;
-
-            // Locate the wall clip plane (the pixelwalk "red square" is here, not
-            // at the wall surface) and the correct outward direction.
-            vec3_t outward = {0.0f, 0.0f, 0.0f}, contact;   // outward set by FindOutwardAndContact
-                                                            // (flat) or SlopeDetect (slope)
-            int wallModel = -1;
-            int catchFloorModel = -1, catchWallModel = -1;   // models from the winning catch
-            float ovz = seam.z;   // height fed to the over-void gate (slope: feet height)
-            bool haveWall = FindOutwardAndContact(pm, phys, usehull, base, outn,
-                                       seam.z + feet + 0.5f, outward, contact, wallModel);
-            if (!seam.slope && !haveWall) continue;
-
-          if (!seam.slope) {   // ===== FLAT floor: probe + fixed-height sim =====
-            // ---- PROBE: epsilon-differential of one real pixelwalk step. A find
-            // is where the move resolves to a FLOOR with the engine epsilon but is
-            // BLOCKED BY A WALL without it (a genuine wall->floor flip). Requiring a
-            // wall block (not just "not floor") rejects ordinary ledges where the
-            // zero-epsilon sweep sails off the edge into open air. ----
-            if (cfg.do_probe) {
-                float pcz = seam.z + feet;   // hull center at the floor clip plane (feet on floor)
-                for (float o = -cfg.band; o <= cfg.band + 1e-6f; o += cfg.grid) {
-                    vec3_t c = { contact[0] + outward[0]*o, contact[1] + outward[1]*o, pcz };
-                    pmtrace_t te = ProbeSweep(pm, c, outward, PW_EPS);
-                    if (!HitFloor(te)) continue;
-                    pmtrace_t t0 = ProbeSweep(pm, c, outward, 0.0f);
-                    if (!HitWall(t0)) continue;         // must be WALL->floor, not EMPTY->floor
-                    f.pos = { c[0], c[1], seam.z + feet };
-                    // floor plane is set consistently from the seam in the finalize
-                    // block below (was te.plane here = origin-z, inconsistent).
-                    // NOTE: don't source models from te/t0 here — the zero-epsilon
-                    // sweep (t0) can sail past the func_wall edge onto a worldspawn
-                    // surface, so t0.ent isn't the pixelwalk's wall. The flat wall
-                    // comes from FindOutwardAndContact (into-wall probe) in finalize;
-                    // the sim path below sim-sources it when it also fires.
-                    f.by_probe = true;
-                    got = true;
-                    break;
-                }
-            }
-
-            // ---- SIM SLIDE (airborne at the seam, gravity + in-air move into the
-            // wall; a pixelwalk lets the fall's downward velocity get clipped by the
-            // floor plane so the hull slides horizontally instead of dropping) ----
-            // ---- SIM: full PM_PlayerMove reproduction. Hover at the pixel over the
-            // void, airborne, and walk (+forward) along the seam. On a pixelwalk map
-            // the floor plane catches the fall each frame so the hull HANGS (small
-            // drop); on a clean map it just falls. Detect via the drop differential
-            // (epsilon on vs off) so it's intrinsic to one map. ----
-            if (cfg.do_fall) {
-                const int NF = 15;
-                vec3_t md = { -outward[0], -outward[1], 0.0f };   // +forward INTO the wall
-                // Sweep the start across the ~1/32 pixel band around the wall clip
-                // plane (contact sits ~1 epsilon out on the void side). Runs even if
-                // the probe already fired, so a spot both methods agree on is tagged
-                // probe+sim.
-                for (float o = -0.05f; o <= 0.15f + 1e-6f; o += cfg.grid) {
-                    vec3_t startC = { contact[0] + outward[0]*o, contact[1] + outward[1]*o, cz };
-                    if (PointContentsMulti(phys, usehull, startC) == CONTENTS_SOLID) continue;
-                    // Ground pre-gate (separate from the movement sim): teleport here
-                    // and let ONE pure-gravity frame act. If the hull settles on real
-                    // floor it's a legitimate stand, not a pixelwalk - skip it (unless
-                    // --skip-categorize-pos disables this).
-                    if (!cfg.skip_categorize && SettlesOnGround(phys, usehull, startC)) continue;
-                    SimOut ea = SimDrive(phys, usehull, startC, md, PW_EPS, NF);
-                    // Pixelwalk requires BOTH:
-                    //  (1) the hull HANGS FREELY with the pixel — vz pinned at ~-4
-                    //      (floor clips the fall), airborne, origin not embedded; AND
-                    //  (2) that free hang is PIXEL-DEPENDENT — WITHOUT the epsilon the
-                    //      hull cannot stand there: it either FALLS FAR or EMBEDS in
-                    //      solid. A geometric wedge / stuck corner just shuffles on
-                    //      real floor without the pixel (neither falls far nor embeds),
-                    //      so it is rejected.
-                    if (ea.hang_frames >= HANG_MIN) {
-                        SimOut eb = SimDrive(phys, usehull, startC, md, 0.0f, NF);
-                        bool eb_falls = eb.dropped > FALL_MIN;
-                        bool eb_embeds = PointContentsMulti(phys, usehull, eb.endpos) == CONTENTS_SOLID;
-                        if (eb_falls || eb_embeds) {
-                            if (!f.by_probe) f.pos = { startC[0], startC[1], seam.z + feet };
-                            f.by_walk = true;
-                            if (ea.hang_frames > f.advanced) f.advanced = (float)ea.hang_frames;
-                            // Sim-sourced models from the actual catch frame (override
-                            // the probe's if valid; the full sim is the ground truth).
-                            if (modelOf(ea.catch_floor_ent) >= 0) catchFloorModel = modelOf(ea.catch_floor_ent);
-                            if (modelOf(ea.catch_wall_ent)  >= 0) catchWallModel  = modelOf(ea.catch_wall_ent);
-                            got = true;
-                            break;
-                        }
-                    }
-                }
-            }
-          } else if (cfg.do_fall) {   // ===== SLOPE (sim method only) =====
-            got = SlopeDetect(pm, phys, usehull, seam, feet, base, outn, cfg, f, wallModel, ovz,
-                              outward, catchFloorModel, catchWallModel);
-          }
-
-            if (!got) continue;
-
-            // Models come from the actual winning catch (sim/probe); fall back to the
-            // candidate seam's face-paired models only if the catch didn't report one.
-            f.floor_model = (catchFloorModel >= 0) ? catchFloorModel : seam.floor_model;
-            f.wall_model  = (catchWallModel  >= 0) ? catchWallModel
-                                                   : (wallModel >= 0 ? wallModel : seam.wall_model);
-            // Model-index rule: a real pixelwalk needs the floor to WIN the seam
-            // contest, which across models requires strict floor_model < wall_model
-            // (a coincident-plane tie goes to the lower index in _PM_PlayerTrace, so
-            // wall<=floor means the wall wins). Same-model floor==wall catches turn
-            // out to be transient false positives in practice (not a standable stand;
-            // every confirmed pixelwalk here — incl. the golden fixture — is
-            // cross-model floor<wall). So require STRICT floor < wall; drop wall<=floor.
+            f.pos = { startC[0], startC[1], startC[2] };
+            f.by_walk = true;
+            f.by_slope = seam.slope;
+            f.advanced = (float)ea.catch_frames;
+            // Models from the actual winning catch; fall back to the seam's floor model.
+            int cfm = modelOf(ea.catch_floor_ent), cwm = modelOf(ea.catch_wall_ent);
+            f.floor_model = (cfm >= 0) ? cfm : seam.floor_model;
+            f.wall_model  = (cwm >= 0) ? cwm : seam.wall_model;
+            // Model-index rule: the floor wins the seam only if floor_model < wall_model
+            // (a coincident-plane tie goes to the lower index). Drop wall <= floor.
             if (f.floor_model >= 0 && f.wall_model >= 0 && f.wall_model <= f.floor_model) continue;
-
-            // Over-void gate: a genuine pixelwalk stand is over the void (no real
-            // floor face under the hull center). Benign concave corners have real
-            // floor beneath and are rejected here.
-            if (floors.overFloor(f.pos[0], f.pos[1], ovz, 3.0f)) continue;
 
             long long key = PosKey(f.pos, usehull);
             if (!seen.insert(key).second) continue;
-
             f.usehull = usehull;
-            f.approach = { -outward[0], -outward[1], 0.0f };
-            // Floor plane from the SEAM (surface plane) for EVERY find, so it's
-            // consistent across probe/sim/slope: `fd` is the floor surface dist
-            // (constant along a ramp; = floor z for a flat wall). The zone key uses
-            // this, so spots at different heights on one wall no longer merge, while
-            // a single ramp (one plane) stays one zone.
+            f.approach = { -outn[0], -outn[1], 0.0f };
             f.floor_normal = { seam.fn[0], seam.fn[1], seam.fn[2] };
             f.floor_dist = seam.fd;
             out.push_back(f);
+            break;                                            // one find per along-sample
         }
     }
 }
@@ -523,7 +304,7 @@ void TraceAt(const WorldModels& wm, const float origin[3], float yaw, int usehul
     }
 }
 
-std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIndex& floors,
+std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
                             const std::vector<Seam>& seams, const FinderConfig& cfg) {
     (void)map;
     int nthreads = cfg.threads;
@@ -538,7 +319,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
         std::unordered_set<long long> seen;
         std::vector<Find>& out = partial[tid];
         for (size_t i = tid; i < seams.size(); i += nthreads)
-            ProcessSeam(seams[i], wm, floors, cfg, out, seen);
+            ProcessSeam(seams[i], wm, cfg, out, seen);
     };
 
     if (nthreads == 1) {
@@ -560,12 +341,8 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 finds.push_back(f);
             } else {
                 Find& g = finds[it->second];
-                g.by_probe |= f.by_probe;
                 g.by_walk  |= f.by_walk;
                 g.by_slope |= f.by_slope;
-                if (f.by_probe && (g.floor_normal[0]==0&&g.floor_normal[1]==0&&g.floor_normal[2]==0)) {
-                    g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
-                }
                 if (f.advanced > g.advanced) g.advanced = f.advanced;
             }
         }
@@ -590,8 +367,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
             } else {
                 Find& g = clustered[it->second];
                 g.cluster_size++;
-                g.by_probe |= f.by_probe; g.by_walk |= f.by_walk;
-                g.by_slope |= f.by_slope;
+                g.by_walk |= f.by_walk; g.by_slope |= f.by_slope;
                 if (f.advanced > g.advanced) {   // keep the strongest representative
                     g.pos = f.pos; g.advanced = f.advanced;
                     g.floor_normal = f.floor_normal; g.floor_dist = f.floor_dist;
@@ -658,8 +434,7 @@ std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIn
                 z.advanced = 0.0f;
                 bool haveN = nonzeroN(z.floor_normal);
                 for (size_t k = i; k <= j; ++k) {
-                    z.by_probe |= g[k].by_probe; z.by_walk |= g[k].by_walk;
-                    z.by_slope |= g[k].by_slope;
+                    z.by_walk |= g[k].by_walk; z.by_slope |= g[k].by_slope;
                     if (g[k].advanced > z.advanced) {   // strongest sample -> representative
                         z.advanced = g[k].advanced;
                         z.approach = g[k].approach; z.floor_model = g[k].floor_model;

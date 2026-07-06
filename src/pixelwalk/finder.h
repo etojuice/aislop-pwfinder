@@ -11,8 +11,7 @@ namespace pw {
 struct Find {
     std::array<float,3> pos{};        // resting hull-center world position
     int  usehull = 0;                 // 0 standing, 1 duck
-    bool by_probe = false;
-    bool by_walk  = false;            // caught by the movement sim (--method sim)
+    bool by_walk  = false;            // caught by the movement-sim detector
     bool by_slope = false;            // caught on a tilted (ramp) floor pixel
     std::array<float,3> floor_normal{}; float floor_dist = 0;
     std::array<float,3> approach{};    // unit dir to walk (into the wall)
@@ -30,8 +29,6 @@ struct Find {
 struct FinderConfig {
     bool  standing = true;
     bool  duck     = true;
-    bool  do_probe = true;
-    bool  do_fall  = true;            // the movement-sim path (walk-into-wall + gravity)
     float grid       = 1.0f / 64.0f;  // cross-seam sub-pixel step
     float band       = 0.5f;          // cross-seam half-window
     float along_step = 1.0f;          // step along the seam
@@ -45,7 +42,7 @@ struct FinderConfig {
     float zone_gap   = 8.0f;          // --zone-gap: max along-wall gap (units) within one zone
 };
 
-std::vector<Find> RunFinder(const Map& map, const WorldModels& wm, const FloorIndex& floors,
+std::vector<Find> RunFinder(const Map& map, const WorldModels& wm,
                             const std::vector<Seam>& seams, const FinderConfig& cfg);
 
 // Debug: run the full PM_PlayerMove sim at a given origin, holding +forward along

@@ -1154,6 +1154,7 @@ del "$(TargetDir)bspguy.cfg_bak"</Command>
     <ClInclude Include=".\..\src\pixelwalk\trace.h" />
     <ClInclude Include=".\..\src\pixelwalk\pmove.h" />
     <ClInclude Include=".\..\src\pixelwalk\world.h" />
+    <ClInclude Include=".\..\src\pixelwalk\clipdecomp.h" />
     <ClInclude Include=".\..\src\pixelwalk\candidates.h" />
     <ClInclude Include=".\..\src\pixelwalk\finder.h" />
     <!-- ObjectFileName: give each pw source a unique .obj basename. Without this,
@@ -1177,6 +1178,10 @@ del "$(TargetDir)bspguy.cfg_bak"</Command>
       <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
     </ClCompile>
     <ClCompile Include=".\..\src\pixelwalk\world.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\clipdecomp.cpp">
       <FloatingPointModel>Precise</FloatingPointModel>
       <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
     </ClCompile>

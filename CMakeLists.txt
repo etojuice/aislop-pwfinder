@@ -84,6 +84,7 @@ set(SOURCE_FILES
 	src/pixelwalk/trace.h			src/pixelwalk/trace.cpp
 	src/pixelwalk/pmove.h			src/pixelwalk/pmove.cpp
 	src/pixelwalk/world.h			src/pixelwalk/world.cpp
+	src/pixelwalk/clipdecomp.h		src/pixelwalk/clipdecomp.cpp
 	src/pixelwalk/candidates.h		src/pixelwalk/candidates.cpp
 	src/pixelwalk/finder.h			src/pixelwalk/finder.cpp
 	src/editor/Command.h			src/editor/Command.cpp
@@ -167,6 +168,7 @@ set_source_files_properties(
 	src/pixelwalk/trace.cpp
 	src/pixelwalk/pmove.cpp
 	src/pixelwalk/world.cpp
+	src/pixelwalk/clipdecomp.cpp
 	src/pixelwalk/candidates.cpp
 	src/pixelwalk/finder.cpp
 	src/editor/PixelwalkFinder.cpp
