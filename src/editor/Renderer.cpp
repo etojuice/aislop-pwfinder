@@ -5258,10 +5258,11 @@ void Renderer::computePixelwalks()
 
 	pixelwalkPositions.clear();
 	selectedPixelwalk = -1;
-	if (!PixelwalkFinder::findPixelwalks(map->bsp_path, pixelwalkPositions))
+	if (!PixelwalkFinder::findPixelwalks(map->bsp_path, pixelwalkPositions, pixelwalkMode))
 		print_log(PRINT_RED, "pixelwalk: failed to load '{}' as BSP v30\n", map->bsp_path);
 	else
-		print_log(PRINT_GREEN, "pixelwalk: found {} positions\n", pixelwalkPositions.size());
+		print_log(PRINT_GREEN, "pixelwalk: {} found {} positions\n",
+			PixelwalkFinder::modeName(pixelwalkMode), pixelwalkPositions.size());
 	showPixelwalks = true;
 }
 

@@ -13,7 +13,17 @@
 
 #include <cmath>
 
-bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<PixelwalkResult>& out)
+const char* PixelwalkFinder::modeName(Mode mode)
+{
+	switch (mode)
+	{
+	case Mode::Original: return "orig";
+	case Mode::ClipnodeDecompile:
+	default: return "clipnode decompile";
+	}
+}
+
+bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<PixelwalkResult>& out, Mode mode)
 {
 	// Mirrors pixelwalk-finder-2/src/main.cpp for the --method sim path.
 	pw::Map map;
@@ -23,7 +33,17 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 
 	std::vector<pw::model_t> models = pw::BuildModels(map);
 	pw::WorldModels wm = pw::BuildWorld(map, models);
-	std::vector<pw::Seam> seams = pw::EnumerateSeams(map, wm, false);
+	std::vector<pw::Seam> seams;
+	switch (mode)
+	{
+	case Mode::Original:
+		seams = pw::EnumerateSeams(map, wm, false);
+		break;
+	case Mode::ClipnodeDecompile:
+	default:
+		seams = pw::EnumerateClipnodeDecompileSeams(map, wm, false);
+		break;
+	}
 	pw::FloorIndex floors = pw::BuildFloorIndex(map, wm);
 
 	pw::FinderConfig cfg;             // defaults from finder.h
@@ -33,6 +53,7 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 	cfg.do_fall = true;
 	cfg.zones = true;                // --zones: group collinear finds into from->to spans
 	cfg.min_samples = 2;             // --min-samples=2: keep finds/zones with >=2 sub-pixel hits
+	cfg.min_slope_samples = (mode == Mode::ClipnodeDecompile) ? 1 : 0;
 
 	std::vector<pw::Find> finds = pw::RunFinder(map, wm, floors, seams, cfg);
 

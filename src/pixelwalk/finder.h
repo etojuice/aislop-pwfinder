@@ -37,6 +37,7 @@ struct FinderConfig {
     float along_step = 1.0f;          // step along the seam
     int   max_finds  = 0;             // 0 = unlimited
     int   min_samples = 6;            // drop finds with fewer than this many sub-pixel hits
+    int   min_slope_samples = 0;      // 0 = use min_samples; clipnode slopes may use 1
     int   threads    = 0;             // 0 = auto
     bool  verbose    = false;
     bool  skip_categorize = false;    // --skip-categorize-pos: don't skip on-ground starts

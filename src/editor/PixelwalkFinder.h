@@ -23,10 +23,19 @@ struct PixelwalkResult
 
 namespace PixelwalkFinder
 {
+	enum class Mode
+	{
+		Original = 0,
+		ClipnodeDecompile = 1,
+	};
+
+	const char* modeName(Mode mode);
+
 	// Runs pixelwalk-finder-2 with --method sim --hull both (all other options
 	// default) on the BSP file at bspPath, appending detected positions to
 	// `out`. Returns false if the file can't be loaded as BSP v30 (the sim
 	// core's loader is v30-only). Detection is engine-faithful 32-bit float,
 	// so results match the standalone pwfinder tool exactly.
-	bool findPixelwalks(const std::string& bspPath, std::vector<PixelwalkResult>& out);
+	bool findPixelwalks(const std::string& bspPath, std::vector<PixelwalkResult>& out,
+		Mode mode = Mode::ClipnodeDecompile);
 }

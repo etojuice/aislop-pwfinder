@@ -298,6 +298,7 @@ public:
 	// Pixelwalk position overlay: positions detected by pixelwalk-finder-2's
 	// sim detector (--method sim --hull both), rendered as a dot + approach line.
 	bool showPixelwalks = false;
+	PixelwalkFinder::Mode pixelwalkMode = PixelwalkFinder::Mode::ClipnodeDecompile;
 	std::vector<PixelwalkResult> pixelwalkPositions;
 	int selectedPixelwalk = -1;   // index into pixelwalkPositions, or -1 (Alt+click picks)
 

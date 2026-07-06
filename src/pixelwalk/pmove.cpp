@@ -90,7 +90,8 @@ int PM_FlyMove(PmContext* pm) {
             break;
 
         if (trace.plane.normal[2] > 0.7f) { blocked |= 0x01; pm->flymove_floor_ent = trace.ent; }   // floor
-        else { pm->flymove_wall_ent = trace.ent; }                                                  // non-floor (wall/steep)
+        else if (trace.plane.normal[2] > 0.0f) { pm->flymove_slide_ent = trace.ent; }               // steep upward slide
+        else { pm->flymove_wall_ent = trace.ent; }                                                  // vertical/downward wall
         if (trace.plane.normal[2] == 0.0f) blocked |= 0x02;   // step/wall
 
         time_left -= time_left * trace.fraction;
@@ -310,6 +311,7 @@ void PM_PlayerMoveFrame(PmContext* pm) {
     pm->flymove_blocked = 0;   // reset; PM_FlyMove ORs its blocked flags in
     pm->flymove_floor_ent = -1;
     pm->flymove_wall_ent = -1;
+    pm->flymove_slide_ent = -1;
     AngleVectors(pm->angles, pm->forward, pm->right, pm->up);
     PM_AddCorrectGravity(pm);
     if (pm->onground != -1) { pm->velocity[2] = 0; PM_Friction(pm); }

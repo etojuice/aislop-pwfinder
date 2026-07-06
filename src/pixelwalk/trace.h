@@ -44,6 +44,8 @@ struct PmContext {
                                          //   Sourced as a find's floor_model at the catch.
     int    flymove_wall_ent = -1;        // physent index of the non-floor (wall/steep)
                                          //   plane clipped this frame (-1 none) -> wall_model.
+    int    flymove_slide_ent = -1;       // physent index of a steep upward slide plane
+                                         //   (0 < normal.z < 0.7) clipped this frame.
     int    movetype = 3;                 // MOVETYPE_WALK
     int    waterlevel = 0;
     float  waterjumptime = 0.0f;

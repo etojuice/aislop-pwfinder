@@ -6631,7 +6631,14 @@ void Gui::drawDebugWidget()
 
 			ImGui::Separator();
 			ImGui::Checkbox("Show pixelwalks", &app->showPixelwalks);
-			if (ImGui::Button("Find pixelwalks (sim, both hulls)"))
+			const char* pixelwalkModes[] = { "orig", "clipnode decompile" };
+			int pixelwalkMode = (int)app->pixelwalkMode;
+			if (ImGui::Combo("Pixelwalk mode", &pixelwalkMode, pixelwalkModes, IM_ARRAYSIZE(pixelwalkModes)))
+			{
+				app->pixelwalkMode = (PixelwalkFinder::Mode)pixelwalkMode;
+			}
+			if (ImGui::Button(fmt::format("Find pixelwalks ({})",
+				PixelwalkFinder::modeName(app->pixelwalkMode)).c_str()))
 				app->computePixelwalks();
 			if (!app->pixelwalkPositions.empty())
 			{
@@ -6647,7 +6654,7 @@ void Gui::drawDebugWidget()
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both --zones on the map file.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\norig = face seams, clipnode decompile = decompiled hull clipnode seams.");
 			}
 			if (app->selectedPixelwalk >= 0 &&
 				app->selectedPixelwalk < (int)app->pixelwalkPositions.size())
