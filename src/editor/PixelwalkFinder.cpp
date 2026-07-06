@@ -140,27 +140,6 @@ namespace
 				if (faceVerts.size() < 3)
 					continue;
 
-				// Reject polygons whose vertices reach Clipper's max-cube
-				// boundary (MAX_DIM=131072). Those are artifacts produced when
-				// a SOLID leaf is not fully bounded by its cut planes — e.g.,
-				// the worldmodel's "outside the world" region. They are not
-				// real collision surfaces and would produce seams stretching
-				// to ±131072 along arbitrary axes.
-				const float kArtifactThreshold = 65536.0f;
-				bool isArtifact = false;
-				for (const vec3& v : faceVerts)
-				{
-					if (std::fabs(v.x) > kArtifactThreshold ||
-						std::fabs(v.y) > kArtifactThreshold ||
-						std::fabs(v.z) > kArtifactThreshold)
-					{
-						isArtifact = true;
-						break;
-					}
-				}
-				if (isArtifact)
-					continue;
-
 				float pos = vecAxis(faceVerts[0], axis);
 
 				// Dedup faces sharing the same axis-aligned plane within this submodel
