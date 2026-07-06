@@ -6631,7 +6631,7 @@ void Gui::drawDebugWidget()
 
 			ImGui::Separator();
 			ImGui::Checkbox("Show pixelwalks", &app->showPixelwalks);
-			if (ImGui::Button("Find pixelwalks (sim, both hulls)"))
+			if (ImGui::Button("Find pixelwalks (both hulls)"))
 				app->computePixelwalks();
 			if (!app->pixelwalkPositions.empty())
 			{
@@ -6647,7 +6647,7 @@ void Gui::drawDebugWidget()
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both --zones on the map file.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\nRuns pixelwalk-finder-2 --hull both --zones on the map file.");
 			}
 			if (app->selectedPixelwalk >= 0 &&
 				app->selectedPixelwalk < (int)app->pixelwalkPositions.size())

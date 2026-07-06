@@ -15,7 +15,7 @@ struct PixelwalkResult
 	vec3  approach;    // unit horizontal dir into the wall (z=0); the +forward to hold
 	float yaw;         // degrees, CS convention (0=+X, 90=+Y), normalized [0,360)
 	int   usehull;     // 0 = standing, 1 = duck
-	int   hang_frames; // frames the hull hung on the pixel (robustness metric)
+	int   catch_frames; // frames the hull stayed caught on the pixel (strength metric)
 	int   samples;     // sub-pixel hits merged into this find/zone
 	int   floor_model; // submodel index of the floor brush (0 = worldspawn)
 	int   wall_model;  // submodel index of the wall brush (-1 if unknown)

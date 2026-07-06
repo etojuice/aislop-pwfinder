@@ -16,8 +16,8 @@ struct Find {
     std::array<float,3> approach{};    // unit dir to walk (into the wall)
     int  floor_model = -1;
     int  wall_model  = -1;
-    float advanced = 0;               // units the epsilon let the hull gain
-    int  cluster_size = 1;            // raw sample-hits merged into this spot
+    int  catch_frames = 0;            // frames the hull stayed caught on the pixel (strength)
+    int  cluster_size = 1;            // raw sub-pixel hits merged into this find (reported as `samples`)
     // --zones: this find is a contiguous walkable SPAN. `pos` is one endpoint
     // (from), `to` the other (end); `length` = span length in units. For point
     // output (default) `to == pos` and `length == 0`.

@@ -1596,6 +1596,11 @@ void Renderer::clearMaps()
 	}
 	mapRenderers.clear();
 	clearSelection();
+	// The pixelwalk overlay belongs to a loaded map; drop it when maps close so a
+	// newly opened map doesn't inherit the previous map's stale zones/selection.
+	pixelwalkPositions.clear();
+	selectedPixelwalk = -1;
+	showPixelwalks = false;
 }
 
 void Renderer::reloadMaps()

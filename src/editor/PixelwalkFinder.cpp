@@ -45,7 +45,7 @@ bool PixelwalkFinder::findPixelwalks(const std::string& bspPath, std::vector<Pix
 		if (r.yaw < 0.0f)
 			r.yaw += 360.0f;
 		r.usehull = f.usehull;
-		r.hang_frames = (int)f.advanced;
+		r.catch_frames = f.catch_frames;   // frames the hull stayed caught on the pixel (strength)
 		r.samples = f.cluster_size;
 		r.floor_model = f.floor_model;
 		r.wall_model = f.wall_model;
