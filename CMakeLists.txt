@@ -73,6 +73,20 @@ set(SOURCE_FILES
 	src/editor/Fgd.h				src/editor/Fgd.cpp
 	src/editor/Clipper.h			src/editor/Clipper.cpp
 	src/editor/PixelwalkFinder.h	src/editor/PixelwalkFinder.cpp
+
+	# pixelwalk-finder-2 sim core (namespaced pw). Kept isolated: src/pixelwalk
+	# is deliberately NOT added to include_directories() so pw's "bsp.h" cannot
+	# shadow the fork's "Bsp.h". Compiled with -ffp-contract=off below.
+	src/pixelwalk/vec.h
+	src/pixelwalk/engine_types.h
+	src/pixelwalk/bsp.h				src/pixelwalk/bsp.cpp
+	src/pixelwalk/hull.h			src/pixelwalk/hull.cpp
+	src/pixelwalk/trace.h			src/pixelwalk/trace.cpp
+	src/pixelwalk/pmove.h			src/pixelwalk/pmove.cpp
+	src/pixelwalk/world.h			src/pixelwalk/world.cpp
+	src/pixelwalk/clipdecomp.h		src/pixelwalk/clipdecomp.cpp
+	src/pixelwalk/candidates.h		src/pixelwalk/candidates.cpp
+	src/pixelwalk/finder.h			src/pixelwalk/finder.cpp
 	src/editor/Command.h			src/editor/Command.cpp
 
 	# map compiler code
@@ -142,6 +156,23 @@ set(SOURCE_FILES
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
+
+# Pixelwalk detection is a single-precision rounding effect at the DIST_EPSILON
+# plane boundary. FMA contraction / fast-math would reassociate the dot()-dist
+# math and change which side of a plane a midpoint lands on, breaking detection.
+# The global flags below use -O3 (no fast-math), but not -ffp-contract=off, so
+# force it off for just the pw sim sources.
+set_source_files_properties(
+	src/pixelwalk/bsp.cpp
+	src/pixelwalk/hull.cpp
+	src/pixelwalk/trace.cpp
+	src/pixelwalk/pmove.cpp
+	src/pixelwalk/world.cpp
+	src/pixelwalk/clipdecomp.cpp
+	src/pixelwalk/candidates.cpp
+	src/pixelwalk/finder.cpp
+	src/editor/PixelwalkFinder.cpp
+	PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 
 if(NOT MSVC)
 	add_definitions(-DNDEBUG)

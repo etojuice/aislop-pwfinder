@@ -417,7 +417,13 @@ void Renderer::renderLoop()
 
 	{
 		line_verts = new cVert[2];
-		lineBuf = new VertexBuffer(colorShader, line_verts, 2, GL_LINES, true);
+		// takeOwnership MUST be false: VertexBuffer::upload() delete[]s owned data
+		// after the first upload, but drawLine rewrites line_verts + reupload()s
+		// every call. With ownership=true only the first drawLine of the session
+		// rendered (all later ones read freed memory / stale GPU readback), which
+		// broke the origin axes, nav-mesh debug, and pixelwalk lines. line_verts
+		// lives for the app's lifetime, so no manual free is needed.
+		lineBuf = new VertexBuffer(colorShader, line_verts, 2, GL_LINES, false);
 	}
 
 	{
@@ -1021,14 +1027,14 @@ void Renderer::renderLoop()
 					debugNodeMax = currentPlane - 1;
 				}
 
-				if (showPixelwalkSeams && !pixelwalkSeams.empty())
+				if (showPixelwalks && !pixelwalkPositions.empty())
 				{
 					matmodel.loadIdentity();
 					vec3 offset = SelectedMap->getBspRender()->mapOffset.flip();
 					matmodel.translate(offset.x, offset.y, offset.z);
 					mat_upload();
 					glDisable(GL_DEPTH_TEST);
-					drawPixelwalkSeams();
+					drawPixelwalks();
 					glEnable(GL_DEPTH_TEST);
 				}
 				if (g_render_flags & RENDER_ORIGIN || g_render_flags & RENDER_MAP_BOUNDARY || hasCullbox)
@@ -2095,7 +2101,12 @@ void Renderer::cameraPickingControls()
 		if (shouldPickObject)
 		{
 			facePickTime = -1.0;
-			pickObject();
+			// Alt+Left-click over the pixelwalk overlay picks a pixelwalk spot
+			// (and copies its amx_setpos) instead of doing normal object picking.
+			if (anyAltPressed && showPixelwalks && !pixelwalkPositions.empty())
+				pickPixelwalk();
+			else
+				pickObject();
 		}
 	}
 
@@ -5236,13 +5247,8 @@ bool Renderer::hasCopiedEnt()
 	return false;
 }
 
-void Renderer::computePixelwalkSeams(int hull)
+void Renderer::computePixelwalks()
 {
-	if (hull != 1 && hull != 3)
-	{
-		print_log(PRINT_RED, "pixelwalk: unsupported hull {} (only 1 and 3 are player hulls)\n", hull);
-		return;
-	}
 	Bsp* map = SelectedMap;
 	if (!map)
 	{
@@ -5250,26 +5256,143 @@ void Renderer::computePixelwalkSeams(int hull)
 		return;
 	}
 
-	pixelwalkSeams.clear();
-	PixelwalkFinder::findSeams(map, hull, pixelwalkSeams);
-	pixelwalkComputedHull = hull;
-	showPixelwalkSeams = true;
+	pixelwalkPositions.clear();
+	selectedPixelwalk = -1;
+	if (!PixelwalkFinder::findPixelwalks(map->bsp_path, pixelwalkPositions))
+		print_log(PRINT_RED, "pixelwalk: failed to load '{}' as BSP v30\n", map->bsp_path);
+	else
+		print_log(PRINT_GREEN, "pixelwalk: found {} positions\n", pixelwalkPositions.size());
+	showPixelwalks = true;
 }
 
-void Renderer::drawPixelwalkSeams()
+void Renderer::pickPixelwalk()
 {
-	if (pixelwalkSeams.empty())
-		return;
-	// Color by hull so standing/crouch seams are visually distinguishable.
-	// Hull 1 (standing) = cyan, hull 3 (crouch) = magenta, anything else = yellow.
-	const COLOR4 colHull1 = {0, 255, 255, 255};
-	const COLOR4 colHull3 = {255, 0, 255, 255};
-	const COLOR4 colOther = {255, 255, 0, 255};
-	for (auto& s : pixelwalkSeams)
+	if (!SelectedMap)
 	{
-		COLOR4 c = (s.hull == 1) ? colHull1 : (s.hull == 3) ? colHull3 : colOther;
-		vec3 a = s.p1;
-		vec3 b = s.p2;
-		drawLine(a, b, c);
+		selectedPixelwalk = -1;
+		return;
 	}
+
+	vec3 pickStart, pickDir;
+	getPickRay(pickStart, pickDir);   // origin + unit dir, raw map coords
+	// Markers are drawn translated by the map's render offset; put the ray in the
+	// same raw-map space as PixelwalkResult::pos (no-op for a map loaded at origin).
+	pickStart -= SelectedMap->getBspRender()->mapOffset;
+
+	const float R = 12.0f;   // click radius (matches the DOT size in drawPixelwalks)
+	int   bestIdx = -1;
+	float bestT = 1e30f;
+
+	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
+	{
+		vec3  oc = pickStart - pixelwalkPositions[i].pos;
+		float b = dotProduct(oc, pickDir);
+		float c = dotProduct(oc, oc) - R * R;
+		float disc = b * b - c;                 // a == 1 (pickDir is unit)
+		if (disc < 0.0f)
+			continue;                            // ray misses the sphere
+		float sq = sqrtf(disc);
+		float t = -b - sq;                       // near root
+		if (t < 0.0f) t = -b + sq;               // camera inside sphere -> far root
+		if (t < 0.0f) continue;                  // sphere entirely behind camera
+		if (t < bestT) { bestT = t; bestIdx = (int)i; }
+	}
+
+	selectedPixelwalk = bestIdx;
+	if (bestIdx >= 0)
+	{
+		PixelwalkResult& pw = pixelwalkPositions[bestIdx];
+		std::string cmd = fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+			pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw);
+		ImGui::SetClipboardText(cmd.c_str());
+		print_log(PRINT_GREEN, "pixelwalk: copied \"{}\"\n", cmd);
+	}
+}
+
+void Renderer::drawPixelwalks()
+{
+	if (pixelwalkPositions.empty())
+		return;
+	// Standing (usehull 0) = green, duck (usehull 1) = orange. Per walkable zone:
+	// dots at the endpoints, a line spanning start->end, and a spike along the
+	// approach yaw (the orientation copied to amx_setpos).
+	const COLOR4 colStand = {0, 255, 0, 255};
+	const COLOR4 colDuck  = {255, 128, 0, 255};
+	const float DOT = 12.0f;   // "big dot" cube width
+
+	// Face culling is GL_FRONT; disable so the solid dots + spikes render fully.
+	glDisable(GL_CULL_FACE);
+	GLfloat savedLineWidth;
+	glGetFloatv(GL_LINE_WIDTH, &savedLineWidth);
+	glLineWidth(3.0f);
+
+	// One zone = dot(s) + span line + a spike along the yaw copied to amx_setpos
+	// (0=+X, 90=+Y) — the orientation actually applied in-game.
+	auto drawZone = [&](PixelwalkResult& r, COLOR4 c)
+	{
+		drawBox(r.pos, DOT, c);
+		if (r.length > 0.5f)   // span: line from the "from" endpoint to the "to" endpoint
+		{
+			drawLine(r.pos, r.to, c);
+			drawBox(r.to, DOT, c);
+		}
+		float yr = r.yaw * (HL_PI / 180.0f);
+		vec3 dir = vec3(cosf(yr), sinf(yr), 0.0f);
+		drawArrow(r.pos, dir, 100.0f, 8.0f, c);   // 100u spike along yaw
+	};
+
+	// Depth test is disabled for this overlay, so overlap is decided purely by
+	// draw order (last write wins). Draw the non-selected zones first, then the
+	// selected one LAST so it paints over the other pixelwalks (rendered on top).
+	for (size_t i = 0; i < pixelwalkPositions.size(); i++)
+	{
+		if ((int)i == selectedPixelwalk)
+			continue;
+		PixelwalkResult& r = pixelwalkPositions[i];
+		drawZone(r, (r.usehull == 0) ? colStand : colDuck);
+	}
+	if (selectedPixelwalk >= 0 && selectedPixelwalk < (int)pixelwalkPositions.size())
+	{
+		PixelwalkResult& r = pixelwalkPositions[selectedPixelwalk];
+		COLOR4 base = (r.usehull == 0) ? colStand : colDuck;
+		drawZone(r, COLOR4(255, base.g / 4, base.b / 4, 255));   // red hue, drawn last
+	}
+
+	glLineWidth(savedLineWidth);
+	glEnable(GL_CULL_FACE);
+}
+
+// Draws a solid square-based pyramid ("spike") of GL_TRIANGLES from a base at
+// `pos` to a tip at `pos + dir*length`, so it visibly points along `dir`. Built
+// like drawBox: geometry in map coords, flipped per-vertex to GL space, drawn
+// with a throwaway VertexBuffer. `dir` must be a unit horizontal vector (z=0).
+// Call from a context that already set matmodel to the map offset (as the
+// showPixelwalks block does) and disabled GL_CULL_FACE.
+void Renderer::drawArrow(vec3 pos, vec3 dir, float length, float baseHalf, COLOR4 color)
+{
+	vec3 fwd  = dir;
+	vec3 side = vec3(fwd.y, -fwd.x, 0.0f);   // horizontal perpendicular (unit)
+	vec3 up   = vec3(0.0f, 0.0f, 1.0f);      // vertical
+
+	vec3 tip = pos + fwd * length;
+	vec3 b0 = pos + side * baseHalf + up * baseHalf;
+	vec3 b1 = pos + side * baseHalf - up * baseHalf;
+	vec3 b2 = pos - side * baseHalf - up * baseHalf;
+	vec3 b3 = pos - side * baseHalf + up * baseHalf;
+
+	// map -> GL render space (x, z, -y); matmodel already carries the map offset.
+	auto V = [&](vec3 p) { return cVert(p.x, p.z, -p.y, color); };
+
+	cVert spike[] = {
+		V(b0), V(b1), V(tip),   // side faces
+		V(b1), V(b2), V(tip),
+		V(b2), V(b3), V(tip),
+		V(b3), V(b0), V(tip),
+		V(b0), V(b1), V(b2),    // base
+		V(b0), V(b2), V(b3),
+	};
+	const int numVerts = (int)(sizeof(spike) / sizeof(spike[0]));
+
+	VertexBuffer buffer(g_app->colorShader, spike, numVerts, GL_TRIANGLES, false);
+	buffer.drawFull();
 }

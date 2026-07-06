@@ -85,6 +85,27 @@
     <ClCompile Include=".\..\src\editor\PixelwalkFinder.cpp">
       <Filter>Source Files\editor</Filter>
     </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\bsp.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\hull.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\trace.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\pmove.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\world.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\candidates.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\finder.cpp">
+      <Filter>Source Files\pixelwalk</Filter>
+    </ClCompile>
     <ClCompile Include=".\..\src\editor\Command.cpp">
       <Filter>Source Files\editor</Filter>
     </ClCompile>
@@ -299,6 +320,33 @@
     <ClInclude Include=".\..\src\editor\PixelwalkFinder.h">
       <Filter>Header Files\editor</Filter>
     </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\vec.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\engine_types.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\bsp.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\hull.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\trace.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\pmove.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\world.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\candidates.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\pixelwalk\finder.h">
+      <Filter>Header Files\pixelwalk</Filter>
+    </ClInclude>
     <ClInclude Include=".\..\src\editor\Command.h">
       <Filter>Header Files\editor</Filter>
     </ClInclude>
@@ -425,6 +473,12 @@
     </Filter>
     <Filter Include="Source Files\editor">
       <UniqueIdentifier>{4CB935D8-D7A3-3485-8042-7A7A3E096C66}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\pixelwalk">
+      <UniqueIdentifier>{D3A6C60D-3552-4B5F-84EE-8E73B5DB7455}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\pixelwalk">
+      <UniqueIdentifier>{C8F645EC-9E9F-497A-B38A-A7D48913FDDF}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\gl">
       <UniqueIdentifier>{61AAB120-9236-37F5-A89F-FB8942B20514}</UniqueIdentifier>

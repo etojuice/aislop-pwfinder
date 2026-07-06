@@ -6630,25 +6630,57 @@ void Gui::drawDebugWidget()
 			ImGui::Text(fmt::format(fmt::runtime(get_localized_string(LANG_0369)), app->pickMode).c_str());
 
 			ImGui::Separator();
-			ImGui::Checkbox("Show pixelwalk seams", &app->showPixelwalkSeams);
-			if (ImGui::Button("Find seams (hull 1)"))
-				app->computePixelwalkSeams(1);
-			ImGui::SameLine();
-			if (ImGui::Button("Find seams (hull 3)"))
-				app->computePixelwalkSeams(3);
-			if (app->pixelwalkComputedHull > 0)
+			ImGui::Checkbox("Show pixelwalks", &app->showPixelwalks);
+			if (ImGui::Button("Find pixelwalks (sim, both hulls)"))
+				app->computePixelwalks();
+			if (!app->pixelwalkPositions.empty())
 			{
-				ImGui::TextDisabled("%zu segments (hull %d)",
-					app->pixelwalkSeams.size(),
-					app->pixelwalkComputedHull);
+				size_t stand = 0, duck = 0;
+				for (auto& r : app->pixelwalkPositions)
+					(r.usehull == 0 ? stand : duck)++;
+				ImGui::TextDisabled("%zu pixelwalk zones (standing %zu, duck %zu)",
+					app->pixelwalkPositions.size(), stand, duck);
 			}
 			else
 			{
-				ImGui::TextDisabled("Click a button to compute seams");
+				ImGui::TextDisabled("Click to scan the open map (BSP v30)");
 			}
 			if (ImGui::IsItemHovered())
 			{
-				ImGui::SetTooltip("Cyan = hull 1 (standing), magenta = hull 3 (crouch).\nSeams are derived from clipnode collision polygons.");
+				ImGui::SetTooltip("Green = standing, orange = duck.\nDots = zone endpoints, line = walkable span (start->end), spike = approach yaw (100u).\nAlt+Left-click an endpoint to select the zone and copy amx_setpos.\nRuns pixelwalk-finder-2 --method sim --hull both --zones on the map file.");
+			}
+			if (app->selectedPixelwalk >= 0 &&
+				app->selectedPixelwalk < (int)app->pixelwalkPositions.size())
+			{
+				PixelwalkResult& pw = app->pixelwalkPositions[app->selectedPixelwalk];
+				ImGui::Separator();
+				ImGui::Text(fmt::format("Selected zone #{} ({})",
+					app->selectedPixelwalk, pw.usehull == 0 ? "standing" : "duck").c_str());
+				ImGui::Text(fmt::format("from: {:.3f} {:.3f} {:.3f}",
+					pw.pos.x, pw.pos.y, pw.pos.z).c_str());
+				if (pw.length > 0.5f)
+				{
+					ImGui::Text(fmt::format("to:   {:.3f} {:.3f} {:.3f}",
+						pw.to.x, pw.to.y, pw.to.z).c_str());
+					ImGui::Text(fmt::format("length: {:.1f}", pw.length).c_str());
+				}
+				ImGui::Text(fmt::format("yaw: {:.1f}   samples: {}", pw.yaw, pw.samples).c_str());
+				ImGui::Text(fmt::format("floor_model: {}   wall_model: {}",
+					pw.floor_model, pw.wall_model).c_str());
+				if (ImGui::Button("Copy amx_setpos (from)"))
+				{
+					ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+						pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw).c_str());
+				}
+				if (pw.length > 0.5f)
+				{
+					ImGui::SameLine();
+					if (ImGui::Button("Copy amx_setpos (to)"))
+					{
+						ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+							pw.to.x, pw.to.y, pw.to.z, pw.yaw).c_str());
+					}
+				}
 			}
 		}
 

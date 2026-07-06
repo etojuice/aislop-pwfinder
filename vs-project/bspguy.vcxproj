@@ -1141,7 +1141,58 @@ del "$(TargetDir)bspguy.cfg_bak"</Command>
     <ClInclude Include=".\..\src\editor\Clipper.h" />
     <ClCompile Include=".\..\src\editor\Clipper.cpp" />
     <ClInclude Include=".\..\src\editor\PixelwalkFinder.h" />
-    <ClCompile Include=".\..\src\editor\PixelwalkFinder.cpp" />
+    <ClCompile Include=".\..\src\editor\PixelwalkFinder.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+    </ClCompile>
+    <!-- pixelwalk-finder-2 sim core (namespace pw). MUST compile /fp:precise:
+         pixelwalk detection is a single-precision boundary artifact that /fp:fast
+         (the default for most configs here) would destroy via FMA/reassociation. -->
+    <ClInclude Include=".\..\src\pixelwalk\vec.h" />
+    <ClInclude Include=".\..\src\pixelwalk\engine_types.h" />
+    <ClInclude Include=".\..\src\pixelwalk\bsp.h" />
+    <ClInclude Include=".\..\src\pixelwalk\hull.h" />
+    <ClInclude Include=".\..\src\pixelwalk\trace.h" />
+    <ClInclude Include=".\..\src\pixelwalk\pmove.h" />
+    <ClInclude Include=".\..\src\pixelwalk\world.h" />
+    <ClInclude Include=".\..\src\pixelwalk\clipdecomp.h" />
+    <ClInclude Include=".\..\src\pixelwalk\candidates.h" />
+    <ClInclude Include=".\..\src\pixelwalk\finder.h" />
+    <!-- ObjectFileName: give each pw source a unique .obj basename. Without this,
+         pw\bsp.cpp -> bsp.obj collides with the fork's Bsp.cpp -> Bsp.obj in the
+         flat IntDir on case-insensitive Windows (MSB8027), clobbering the real
+         Bsp.obj and producing LNK2001 for every Bsp:: symbol. -->
+    <ClCompile Include=".\..\src\pixelwalk\bsp.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\hull.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\trace.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\pmove.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\world.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\clipdecomp.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\candidates.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include=".\..\src\pixelwalk\finder.cpp">
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ObjectFileName>$(IntDir)pw_%(Filename).obj</ObjectFileName>
+    </ClCompile>
     <ClInclude Include=".\..\src\editor\Command.h" />
     <ClCompile Include=".\..\src\editor\Command.cpp" />
     <ClInclude Include=".\..\src\qtools\rad.h" />

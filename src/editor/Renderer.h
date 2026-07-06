@@ -295,11 +295,11 @@ public:
 	int clipnodeRenderHull = -1;
 	GLfloat lineWidthRange[2];
 
-	// Pixelwalk seam overlay: line segments computed in-engine via
-	// PixelwalkFinder (collision-hull polygon clipping).
-	bool showPixelwalkSeams = false;
-	std::vector<PixelwalkSeam> pixelwalkSeams;
-	int pixelwalkComputedHull = -1;        // -1 = none; otherwise last hull computed
+	// Pixelwalk position overlay: positions detected by pixelwalk-finder-2's
+	// sim detector (--method sim --hull both), rendered as a dot + approach line.
+	bool showPixelwalks = false;
+	std::vector<PixelwalkResult> pixelwalkPositions;
+	int selectedPixelwalk = -1;   // index into pixelwalkPositions, or -1 (Alt+click picks)
 
 	double lastTitleTime = 0.0f;
 	int g_rend_vsync = -1;
@@ -347,8 +347,13 @@ public:
 	void drawClipnodes(Bsp* map, int iNode, int& currentPlane, int activePlane, vec3 offset = vec3());
 	void drawNodes(Bsp* map, int iNode, int& currentPlane, int activePlane, vec3 offset = vec3());
 
-	void computePixelwalkSeams(int hull);  // hull 1 (standing) or 3 (crouching)
-	void drawPixelwalkSeams();
+	void computePixelwalks();  // runs the sim detector on SelectedMap (both hulls)
+	void drawPixelwalks();
+	// Ray-picks the pixelwalk nearest the cursor (Alt+Left-click); on a hit sets
+	// selectedPixelwalk and copies "amx_setpos x y z 0 yaw" to the clipboard.
+	void pickPixelwalk();
+	// Solid pyramid spike (GL_TRIANGLES) from pos pointing along unit dir, length long.
+	void drawArrow(vec3 pos, vec3 dir, float length, float baseHalf, COLOR4 color);
 
 	vec3 getAxisDragPoint(vec3 origin);
 
