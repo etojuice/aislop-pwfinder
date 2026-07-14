@@ -6656,20 +6656,20 @@ void Gui::drawDebugWidget()
 				ImGui::Separator();
 				ImGui::Text(fmt::format("Selected zone #{} ({})",
 					app->selectedPixelwalk, pw.usehull == 0 ? "standing" : "duck").c_str());
-				ImGui::Text(fmt::format("from: {:.3f} {:.3f} {:.3f}",
+				ImGui::Text(fmt::format("from: {:.7f} {:.7f} {:.7f}",
 					pw.pos.x, pw.pos.y, pw.pos.z).c_str());
 				if (pw.length > 0.5f)
 				{
-					ImGui::Text(fmt::format("to:   {:.3f} {:.3f} {:.3f}",
+					ImGui::Text(fmt::format("to:   {:.7f} {:.7f} {:.7f}",
 						pw.to.x, pw.to.y, pw.to.z).c_str());
 					ImGui::Text(fmt::format("length: {:.1f}", pw.length).c_str());
 				}
-				ImGui::Text(fmt::format("yaw: {:.1f}   samples: {}", pw.yaw, pw.samples).c_str());
+				ImGui::Text(fmt::format("yaw: {:.7f}   samples: {}", pw.yaw, pw.samples).c_str());
 				ImGui::Text(fmt::format("floor_model: {}   wall_model: {}",
 					pw.floor_model, pw.wall_model).c_str());
 				if (ImGui::Button("Copy amx_setpos (from)"))
 				{
-					ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+					ImGui::SetClipboardText(fmt::format("amx_setpos {:.7f} {:.7f} {:.7f} 0 {:.7f}",
 						pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw).c_str());
 				}
 				if (pw.length > 0.5f)
@@ -6677,7 +6677,7 @@ void Gui::drawDebugWidget()
 					ImGui::SameLine();
 					if (ImGui::Button("Copy amx_setpos (to)"))
 					{
-						ImGui::SetClipboardText(fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+						ImGui::SetClipboardText(fmt::format("amx_setpos {:.7f} {:.7f} {:.7f} 0 {:.7f}",
 							pw.to.x, pw.to.y, pw.to.z, pw.yaw).c_str());
 					}
 				}

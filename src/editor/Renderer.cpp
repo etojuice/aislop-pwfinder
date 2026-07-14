@@ -5307,7 +5307,7 @@ void Renderer::pickPixelwalk()
 	if (bestIdx >= 0)
 	{
 		PixelwalkResult& pw = pixelwalkPositions[bestIdx];
-		std::string cmd = fmt::format("amx_setpos {:.3f} {:.3f} {:.3f} 0 {:.1f}",
+		std::string cmd = fmt::format("amx_setpos {:.7f} {:.7f} {:.7f} 0 {:.7f}",
 			pw.pos.x, pw.pos.y, pw.pos.z, pw.yaw);
 		ImGui::SetClipboardText(cmd.c_str());
 		print_log(PRINT_GREEN, "pixelwalk: copied \"{}\"\n", cmd);
