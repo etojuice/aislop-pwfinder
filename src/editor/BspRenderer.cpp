@@ -1811,6 +1811,16 @@ void BspRenderer::generateClipnodeBufferForHull(int modelIdx, int hullIdx)
 			COLOR4 faceColor = color * (dot);
 			faceColor.a = (g_render_flags & RENDER_TRANSPARENT) ? 128 : 255;
 
+			// Tint walkable surfaces red (GoldSrc floor test: up-facing plane, matches nav 0.7 threshold).
+			// Only for the collision hulls (hull > 0), not the visual hull 0.
+			if (hullIdx > 0 && mesh.faces[n].normal.z > 0.7f)
+			{
+				const float t = 0.35f; // blend strength — "slight" tint
+				faceColor.r = (unsigned char)(faceColor.r * (1.0f - t) + 255.0f * t);
+				faceColor.g = (unsigned char)(faceColor.g * (1.0f - t));
+				faceColor.b = (unsigned char)(faceColor.b * (1.0f - t));
+			}
+
 			// convert from TRIANGLE_FAN style verts to TRIANGLES
 			for (size_t k = 2; k < faceVerts.size(); k++)
 			{
