@@ -73,6 +73,8 @@ set(SOURCE_FILES
 	src/editor/Fgd.h				src/editor/Fgd.cpp
 	src/editor/Clipper.h			src/editor/Clipper.cpp
 	src/editor/PixelwalkFinder.h	src/editor/PixelwalkFinder.cpp
+	src/editor/ClipDecompAdapter.h	src/editor/ClipDecompAdapter.cpp
+	src/editor/ClipDecompShim.h		src/editor/ClipDecompShim.cpp
 
 	# pixelwalk-finder-2 sim core (namespaced pw). Kept isolated: src/pixelwalk
 	# is deliberately NOT added to include_directories() so pw's "bsp.h" cannot

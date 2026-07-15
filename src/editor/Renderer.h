@@ -293,6 +293,7 @@ public:
 	bool debugClipnodes = false;
 	bool debugNodes = false;
 	int clipnodeRenderHull = -1;
+	bool clipnodeUseDecomp = false;   // false = Clipper (default), true = pw::clipdecomp
 	GLfloat lineWidthRange[2];
 
 	// Pixelwalk position overlay: positions detected by pixelwalk-finder-2's

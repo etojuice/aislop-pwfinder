@@ -291,7 +291,8 @@ public:
 	void addNewRenderFace();
 	void loadClipnodes();
 	void generateClipnodeBufferForHull(int modelIdx, int hullId);
-	void generateClipnodeBuffer(int modelIdx);	
+	void generateClipnodeBufferForHull_Decomp(int modelIdx, int hullId);
+	void generateClipnodeBuffer(int modelIdx);
 	void generateNavMeshBuffer();
 	void generateLeafNavMeshBuffer();
 	void deleteRenderModelClipnodes(RenderClipnodes* renderClip);

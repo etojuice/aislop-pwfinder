@@ -8,6 +8,7 @@
 #include "Settings.h"
 #include "Renderer.h"
 #include "Clipper.h"
+#include "ClipDecompAdapter.h"
 #include "Command.h"
 #include "Sprite.h"
 #include "Gui.h"
@@ -1603,6 +1604,14 @@ void BspRenderer::generateClipnodeBufferForHull(int modelIdx, int hullIdx)
 	if (hullIdx < 0 || hullIdx > 3)
 		return;
 
+	// A/B alternate: decompile the clip hull with pw::clipdecomp instead of Clipper.
+	// Clipnode-only (hulls 1-3); hull 0 (visible BSP) always uses the path below.
+	if (g_app->clipnodeUseDecomp && hullIdx >= 1 && hullIdx <= 3)
+	{
+		generateClipnodeBufferForHull_Decomp(modelIdx, hullIdx);
+		return;
+	}
+
 	BSPMODEL& model = map->models[modelIdx];
 	Clipper clipper;
 
@@ -1859,6 +1868,181 @@ void BspRenderer::generateClipnodeBufferForHull(int modelIdx, int hullIdx)
 		nodesBufferCache[nodeIdx] = curHullIdxStruct;
 	}
 	g_mutex_list[2].unlock();
+}
+
+void BspRenderer::generateClipnodeBufferForHull_Decomp(int modelIdx, int hullIdx)
+{
+	if (hullIdx < 1 || hullIdx > 3)
+		return;
+
+	while (modelIdx >= (int)renderClipnodes.size())
+	{
+		addClipnodeModel(modelIdx);
+	}
+
+	RenderClipnodes& renderClip = renderClipnodes[modelIdx];
+
+	if (renderClip.clipnodeBuffer[hullIdx])
+	{
+		delete renderClip.clipnodeBuffer[hullIdx];
+		renderClip.clipnodeBuffer[hullIdx] = NULL;
+	}
+
+	if (renderClip.wireframeClipnodeBuffer[hullIdx])
+	{
+		delete renderClip.wireframeClipnodeBuffer[hullIdx];
+		renderClip.wireframeClipnodeBuffer[hullIdx] = NULL;
+	}
+
+	renderClip.faceMaths[hullIdx].clear();
+
+	std::vector<ClipDecompOutBrush> brushes = DecompileEditorClipHull(map, modelIdx, hullIdx);
+	if (brushes.empty())
+	{
+		// Unsupported (e.g. >int16 clipnodes) - fall back to the Clipper path.
+		bool prev = g_app->clipnodeUseDecomp;
+		g_app->clipnodeUseDecomp = false;
+		generateClipnodeBufferForHull(modelIdx, hullIdx);
+		g_app->clipnodeUseDecomp = prev;
+		return;
+	}
+
+	static COLOR4 hullColors[] = {
+		COLOR4(255, 255, 255, 128),
+		COLOR4(96, 255, 255, 128),
+		COLOR4(255, 96, 255, 128),
+		COLOR4(255, 255, 96, 128),
+	};
+
+	COLOR4 color = hullColors[hullIdx];
+
+	std::vector<cVert> allVerts;
+	std::vector<cVert> wireframeVerts;
+	std::vector<FaceMath>& tfaceMaths = renderClip.faceMaths[hullIdx];
+	tfaceMaths.clear();
+
+	for (size_t b = 0; b < brushes.size(); b++)
+	{
+		if (brushes[b].contents != CONTENTS_SOLID)
+			continue;
+
+		for (size_t n = 0; n < brushes[b].faces.size(); n++)
+		{
+			const ClipDecompOutFace& face = brushes[b].faces[n];
+			if (face.w.size() < 3)
+				continue;
+
+			vec3 faceNormal = vec3(face.n[0], face.n[1], face.n[2]);
+
+			std::vector<vec3> faceVerts;
+			faceVerts.reserve(face.w.size());
+			for (size_t k = 0; k < face.w.size(); k++)
+			{
+				faceVerts.push_back(vec3(face.w[k][0], face.w[k][1], face.w[k][2]));
+			}
+
+			faceVerts = getSortedPlanarVerts(faceVerts);
+
+			if (faceVerts.size() < 3)
+			{
+				continue;
+			}
+
+			vec3 normal = getNormalFromVerts(faceVerts);
+
+			if (dotProduct(faceNormal, normal) > 0.0f)
+			{
+				reverse(faceVerts.begin(), faceVerts.end());
+				normal = normal.invert();
+			}
+
+			// calculations for face picking
+
+			FaceMath faceMath;
+			faceMath.normal = faceNormal;
+			faceMath.fdist = getDistAlongAxis(faceMath.normal, faceVerts[0]);
+
+			vec3 v0 = faceVerts[0];
+			vec3 v1;
+			bool found = false;
+			for (size_t c = 1; c < faceVerts.size(); c++)
+			{
+				if (faceVerts[c] != v0)
+				{
+					v1 = faceVerts[c];
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				print_log(PRINT_RED | PRINT_INTENSITY, get_localized_string(LANG_0283));
+			}
+
+			vec3 plane_z = faceNormal;
+			vec3 plane_x = (v1 - v0).normalize();
+			vec3 plane_y = crossProduct(plane_z, plane_x).normalize();
+
+			faceMath.worldToLocal = worldToLocalTransform(plane_x, plane_y, plane_z);
+
+			faceMath.localVerts = std::vector<vec2>(faceVerts.size());
+			for (size_t k = 0; k < faceVerts.size(); k++)
+			{
+				faceMath.localVerts[k] = (faceMath.worldToLocal * vec4(faceVerts[k], 1)).xy();
+			}
+
+			tfaceMaths.push_back(faceMath);
+
+			// create the verts for rendering
+			for (size_t c = 0; c < faceVerts.size(); c++)
+			{
+				faceVerts[c] = faceVerts[c].flip();
+			}
+
+			COLOR4 wireframeColor = { 0, 0, 0, 255 };
+			for (size_t k = 0; k < faceVerts.size(); k++)
+			{
+				wireframeVerts.emplace_back(cVert(faceVerts[k], wireframeColor));
+				wireframeVerts.emplace_back(cVert(faceVerts[(k + 1) % faceVerts.size()], wireframeColor));
+			}
+
+			vec3 lightDir = vec3(1.0f, 1.0f, -1.0f).normalize();
+			float dot = (dotProduct(normal, lightDir) + 1) / 2.0f;
+			if (dot > 0.5f)
+			{
+				dot = dot * dot;
+			}
+
+			COLOR4 faceColor = color * (dot);
+			faceColor.a = (g_render_flags & RENDER_TRANSPARENT) ? 128 : 255;
+
+			// convert from TRIANGLE_FAN style verts to TRIANGLES
+			for (size_t k = 2; k < faceVerts.size(); k++)
+			{
+				allVerts.emplace_back(cVert(faceVerts[0], faceColor));
+				allVerts.emplace_back(cVert(faceVerts[k - 1], faceColor));
+				allVerts.emplace_back(cVert(faceVerts[k], faceColor));
+			}
+		}
+	}
+
+	if (allVerts.empty() || wireframeVerts.empty())
+	{
+		return;
+	}
+
+	cVert* output = new cVert[allVerts.size()];
+	std::copy(allVerts.begin(), allVerts.end(), output);
+
+	cVert* wireOutput = new cVert[wireframeVerts.size()];
+	std::copy(wireframeVerts.begin(), wireframeVerts.end(), wireOutput);
+
+	renderClip.clipnodeBuffer[hullIdx] = new VertexBuffer(g_app->colorShader, output, (int)(allVerts.size()), GL_TRIANGLES, true);
+	renderClip.clipnodeBuffer[hullIdx]->frameId = 0;
+
+	renderClip.wireframeClipnodeBuffer[hullIdx] = new VertexBuffer(g_app->colorShader, wireOutput, (int)(wireframeVerts.size()), GL_LINES, true);
+	renderClip.wireframeClipnodeBuffer[hullIdx]->frameId = 0;
 }
 
 void BspRenderer::generateClipnodeBuffer(int modelIdx)

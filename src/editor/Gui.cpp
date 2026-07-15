@@ -4318,6 +4318,14 @@ void Gui::drawMenuBar()
 					rend->curLeafIdx = 0;
 				}
 
+				ImGui::Separator();
+				if (ImGui::MenuItem("Use clipdecomp (pw)", NULL, app->clipnodeUseDecomp))
+				{
+					app->clipnodeUseDecomp = !app->clipnodeUseDecomp;
+					rend->curLeafIdx = 0;
+					rend->reloadClipnodes();
+				}
+
 				ImGui::EndMenu();
 			}
 

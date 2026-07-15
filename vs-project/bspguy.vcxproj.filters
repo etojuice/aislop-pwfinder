@@ -85,6 +85,12 @@
     <ClCompile Include=".\..\src\editor\PixelwalkFinder.cpp">
       <Filter>Source Files\editor</Filter>
     </ClCompile>
+    <ClCompile Include=".\..\src\editor\ClipDecompShim.cpp">
+      <Filter>Source Files\editor</Filter>
+    </ClCompile>
+    <ClCompile Include=".\..\src\editor\ClipDecompAdapter.cpp">
+      <Filter>Source Files\editor</Filter>
+    </ClCompile>
     <ClCompile Include=".\..\src\pixelwalk\bsp.cpp">
       <Filter>Source Files\pixelwalk</Filter>
     </ClCompile>
@@ -318,6 +324,12 @@
       <Filter>Header Files\editor</Filter>
     </ClInclude>
     <ClInclude Include=".\..\src\editor\PixelwalkFinder.h">
+      <Filter>Header Files\editor</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\editor\ClipDecompShim.h">
+      <Filter>Header Files\editor</Filter>
+    </ClInclude>
+    <ClInclude Include=".\..\src\editor\ClipDecompAdapter.h">
       <Filter>Header Files\editor</Filter>
     </ClInclude>
     <ClInclude Include=".\..\src\pixelwalk\vec.h">

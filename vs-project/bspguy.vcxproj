@@ -1144,6 +1144,13 @@ del "$(TargetDir)bspguy.cfg_bak"</Command>
     <ClCompile Include=".\..\src\editor\PixelwalkFinder.cpp">
       <FloatingPointModel>Precise</FloatingPointModel>
     </ClCompile>
+    <!-- clipdecomp renderer bridge. ClipDecompShim.cpp is the ONLY editor TU that
+         includes the pw:: world (clipdecomp.h); the adapter stays in the fork world.
+         Kept apart so the CONTENTS_*/MAX_MAP_HULLS macro-vs-enum clash can't happen. -->
+    <ClInclude Include=".\..\src\editor\ClipDecompShim.h" />
+    <ClInclude Include=".\..\src\editor\ClipDecompAdapter.h" />
+    <ClCompile Include=".\..\src\editor\ClipDecompShim.cpp" />
+    <ClCompile Include=".\..\src\editor\ClipDecompAdapter.cpp" />
     <!-- pixelwalk-finder-2 sim core (namespace pw). MUST compile /fp:precise:
          pixelwalk detection is a single-precision boundary artifact that /fp:fast
          (the default for most configs here) would destroy via FMA/reassociation. -->
