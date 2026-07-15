@@ -63,6 +63,7 @@ jobs:
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
+          make_latest: ${{ github.event_name == 'release' }}
           files: |
             build/newbspguy_ubuntu_release.zip
   window_build:
@@ -97,6 +98,7 @@ jobs:
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
+          make_latest: ${{ github.event_name == 'release' }}
           files: |
             build/newbspguy_win7_x64_release.zip
 
@@ -120,6 +122,7 @@ jobs:
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
+          make_latest: false
           files: |
             build/newbspguy_win7_x64_dbg.zip
   window_build_gcc:
@@ -181,5 +184,6 @@ jobs:
         with:
           tag_name: ${{ needs.get_time_build.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
+          make_latest: false
           files: |
             build/newbspguy_win7_x64_gcc_release.zip
